@@ -1,162 +1,217 @@
 # go-sympy
 
-A compact symbolic algebra engine written in pure Go.
+Minimal deterministic symbolic math kernel in pure Go.
 
-`go-sympy` provides basic symbolic mathematics capabilities in a single-file, dependency-free package. It is designed to be small, embeddable, and usable by both humans and AI agents.
-
-This is **not** a full SymPy port. It is a lightweight symbolic system for Go projects that need algebraic manipulation without Python.
+Single-file. No dependencies. Rational arithmetic. AI-friendly.
 
 ---
 
-## ✨ Features
+## Why
 
-- Symbolic expressions
-- Differentiation
-- Simplification
-- Substitution
-- Basic integration
-- Taylor series expansion
-- Linear and quadratic equation solving
-- Matrix operations
-- LaTeX output
-- Expression parsing from strings
-- Built-in constants: `pi`, `e`
-- Trig + exp + log + sqrt + abs
+Python has SymPy.
 
-All implemented in a **single file** with no external dependencies.
+Go has… mostly numeric math.
+
+`go-sympy` is a compact symbolic core designed for:
+
+- AI agents embedding math reasoning
+- Lightweight symbolic manipulation
+- Deterministic algebraic transforms
+- Educational tooling
+- LLM tool backends
+- Minimal math kernels in Go services
+
+This is **not** a full SymPy clone.
+
+It is a small, predictable symbolic engine.
 
 ---
 
-## 📦 Installation
+## Design Goals
 
-```bash
-go get github.com/njchilds90/go-sympy
+- Single file (`sympy.go`)
+- Zero external dependencies
+- Deterministic simplification (stable term ordering)
+- Exact rational arithmetic (`math/big.Rat`)
+- AI-embeddable
+- Rule-based and transparent
+- Compact API surface
 
-Then:
-import "github.com/njchilds90/go-sympy"
+---
 
+## Features
 
-🚀 Quick Example
-package main
+### Core Expression Types
 
-import (
-	"fmt"
-	"github.com/njchilds90/go-sympy"
+- `Num` (exact rational numbers)
+- `Sym` (symbols)
+- `Add`
+- `Mul`
+- `Pow`
+
+All implement:
+
+```go
+type Expr interface {
+    Simplify() Expr
+    String() string
+    Sub(varName string, value Expr) Expr
+}
+```
+
+---
+
+### Deterministic Simplification
+
+- Flattens nested operations
+- Combines numeric terms
+- Stable lexicographic ordering
+- Reproducible output for AI systems
+
+```go
+sympy.String(
+    sympy.AddOf(sympy.S("x"), sympy.N(2), sympy.S("x")),
 )
+```
 
-func main() {
-	x := sympy.Symbol("x")
+---
 
-	expr := sympy.Add(
-		sympy.Pow(x, sympy.Number(2)),
-		sympy.Number(3),
-	)
+### Exact Rational Arithmetic
 
-	fmt.Println(expr)                 // x^2+3
-	fmt.Println(expr.Diff(x))         // 2*x
-	fmt.Println(expr.Eval(map[string]float64{"x": 2})) // 7
-}
+```go
+sympy.F(1, 3)   // 1/3
+sympy.F(5, 7)   // 5/7
+```
 
-🧠 Expression Construction
-Expressions are built using constructors:
-x := Symbol("x")
+Backed by `math/big.Rat`.
 
-Add(a, b)
-Sub(a, b)
-Mul(a, b)
-Div(a, b)
-Pow(a, b)
+No float rounding unless explicitly requested.
 
-Sin(x)
-Cos(x)
-Tan(x)
-Exp(x)
-Ln(x)
-Sqrt(x)
-Abs(x)
+---
 
-🔍 Parsing Expressions
+### Polynomial Utilities
 
-You can parse strings:
-expr := sympy.Parse("sin(x)^2 + cos(x)^2")
-fmt.Println(expr.Simplify())   // 1
-Supported operators:
+#### Degree
 
-+
+```go
+sympy.Degree(expr, "x")
+```
 
--
+#### Coefficient Extraction
 
-*
+```go
+coeffs := sympy.PolyCoeffs(expr, "x")
+// map[degree]Rational
+```
 
-/
+Enables:
 
-^
+- AI reasoning over polynomials
+- Custom solvers
+- Lightweight CAS behaviors
 
-Supported functions:
+---
 
-sin
+### Solvers
 
-cos
+#### Linear
 
-tan
+```go
+sympy.SolveLinear(a, b)  // solves ax + b = 0
+```
 
-exp
+Exact rational result.
 
-ln
+#### Quadratic
 
-sqrt
+```go
+sympy.SolveQuadratic(a, b, c)
+```
 
-abs
+Float64 roots.
 
-Constants:
+---
 
-pi
+### Integration (Rule-Based)
 
-e
+Supports:
 
+- Power rule
+- Sum rule
+- Constant multiple rule
+- Polynomial integration
 
-📉 Differentiation:
-x := sympy.Symbol("x")
-f := sympy.Parse("x^3 + 2*x")
+```go
+sympy.Integrate(expr, "x")
+```
 
-df := f.Diff(x).Simplify()
+Pattern-based only. No Risch algorithm.
 
-fmt.Println(df)   // 3*x^2+2
+---
 
-📈 Integration:
-x := sympy.Symbol("x")
-f := sympy.Sin(x)
+## Public Helpers
 
-F := sympy.Integrate(f, x)
+```go
+sympy.Simplify(expr)
+sympy.String(expr)
+```
 
-fmt.Println(F)    // -cos(x)
-val := sympy.IntegrateDefinite(sympy.Sin(x), x, 0, math.Pi)
+Designed for AI pipelines where deterministic formatting matters.
 
-📊 Taylor Series:
-x := sympy.Symbol("x")
-f := sympy.Exp(x)
+---
 
-t := sympy.Taylor(f, x, sympy.Number(0), 5)
-fmt.Println(t)
+## Limitations
 
+- No advanced polynomial factoring
+- No symbolic matrix algebra
+- No canonical simplification engine
+- No symbolic limits beyond substitution
+- No transcendental integration
+- No parser (AST is built programmatically)
 
-🧮 Solving Equations
-Supports linear and quadratic equations:
-x := sympy.Symbol("x")
-eq := sympy.Parse("x^2 - 4")
+This is a **minimal symbolic kernel**, not a full CAS.
 
-roots := sympy.Solve(eq, x)
+---
 
-🧩 Matrix Support:
-A := sympy.Matrix{
-	{sympy.Number(1), sympy.Number(2)},
-	{sympy.Number(3), sympy.Number(4)},
-}
+## Intended Use Cases
 
-B := sympy.Matrix{
-	{sympy.Number(5), sympy.Number(6)},
-	{sympy.Number(7), sympy.Number(8)},
-}
+- AI tool execution layer
+- LLM symbolic reasoning backend
+- Go-based math microservices
+- Deterministic algebra transforms
+- Educational symbolic engines
+- Lightweight research tools
 
-C := sympy.MatrixMul(A, B)
-fmt.Println(C)
+---
+
+## Philosophy
+
+Small.
+Predictable.
+Deterministic.
+Embeddable.
+
+Not big.
+Not magical.
+Not opaque.
+
+---
+
+## Future Directions
+
+- Differentiation
+- Expanded polynomial solving
+- Structured pattern matching
+- Optional parser layer
+- Symbolic equation solving
+
+---
+
+## License
+
+MIT
+
+---
+
+Minimal symbolic math for Go.
+Built for humans and AI.
