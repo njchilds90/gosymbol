@@ -1,10 +1,10 @@
 # go-sympy
 
-A lightweight symbolic mathematics library for Go, inspired by Python's SymPy.
+A minimal symbolic mathematics library for Go, inspired by Python's SymPy.
 
-Currently provides basic symbolic expressions, arithmetic operations, pretty-printing (precedence-aware with fewer unnecessary parentheses), and derivative computation.
+Supports symbolic expressions, arithmetic (+ − × / ^ negation), trig/exp/log/sqrt functions, precedence-aware pretty-printing, differentiation (product/chain/general power rule), basic simplification, string parsing, numerical evaluation, simple expansion, basic integration, and linear/quadratic equation solving.
 
-This is an early-stage project (started Feb 18, 2026) — focused on core expression handling and printing.
+Single-file, zero dependencies. Very early prototype (all development on Feb 18, 2026).
 
 ## Installation
 
