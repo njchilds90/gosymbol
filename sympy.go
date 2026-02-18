@@ -10,6 +10,7 @@ import (
 
 type Expr interface {
 	String() string
+	LaTeX() string
 	Eval(map[string]float64) float64
 	Diff(Expr) Expr
 	Simplify() Expr
@@ -17,22 +18,45 @@ type Expr interface {
 
 type constExpr struct{ value float64 }
 func (c *constExpr) String() string { return fmt.Sprintf("%g", c.value) }
+func (c *constExpr) LaTeX() string  { return fmt.Sprintf("%.10g", c.value) }
 func (c *constExpr) Eval(_ map[string]float64) float64 { return c.value }
 func (c *constExpr) Diff(_ Expr) Expr { return Number(0) }
 func (c *constExpr) Simplify() Expr { return c }
 
 type varExpr struct{ name string }
 func (v *varExpr) String() string { return v.name }
-func (v *varExpr) Eval(s map[string]float64) float64 { if val, ok := s[v.name]; ok { return val }; return math.NaN() }
-func (v *varExpr) Diff(sym Expr) Expr { if vv, ok := sym.(*varExpr); ok && vv.name == v.name { return Number(1) }; return Number(0) }
+func (v *varExpr) LaTeX() string  { return v.name }
+func (v *varExpr) Eval(s map[string]float64) float64 {
+	if val, ok := s[v.name]; ok { return val }
+	return math.NaN()
+}
+func (v *varExpr) Diff(sym Expr) Expr {
+	if vv, ok := sym.(*varExpr); ok && vv.name == v.name { return Number(1) }
+	return Number(0)
+}
 func (v *varExpr) Simplify() Expr { return v }
 
-type binOp struct { op string; l, r Expr; prec int }
+type binOp struct {
+	op   string
+	l, r Expr
+	prec int
+}
 func (b *binOp) String() string {
 	ls, rs := b.l.String(), b.r.String()
 	if lb, ok := b.l.(*binOp); ok && lb.prec < b.prec { ls = "(" + ls + ")" }
 	if rb, ok := b.r.(*binOp); ok && rb.prec <= b.prec { rs = "(" + rs + ")" }
 	return ls + b.op + rs
+}
+func (b *binOp) LaTeX() string {
+	ls, rs := b.l.LaTeX(), b.r.LaTeX()
+	switch b.op {
+	case "+": return ls + " + " + rs
+	case "-": return ls + " - " + rs
+	case "*": return ls + "\\," + rs
+	case "/": return "\\frac{" + ls + "}{" + rs + "}"
+	case "^": return ls + "^{" + rs + "}"
+	}
+	return b.String()
 }
 func (b *binOp) Eval(s map[string]float64) float64 {
 	lv, rv := b.l.Eval(s), b.r.Eval(s)
@@ -51,7 +75,11 @@ func (b *binOp) Diff(sym Expr) Expr {
 	case "+": return Add(ld, rd)
 	case "-": return Sub(ld, rd)
 	case "*": return Add(Mul(ld, b.r), Mul(b.l, rd))
-	case "^": return Mul(b, Add(Mul(rd, Ln(b.l)), Mul(b.r, Div(ld, b.l))))
+	case "^":
+		if _, ok := b.r.(*constExpr); ok {
+			return Mul(b.r, Mul(Pow(b.l, Sub(b.r, Number(1))), ld))
+		}
+		return Mul(b, Add(Mul(rd, Ln(b.l)), Mul(b.r, Div(ld, b.l))))
 	}
 	return Number(0)
 }
@@ -75,14 +103,26 @@ func (b *binOp) Simplify() Expr {
 	return &binOp{b.op, l, r, b.prec}
 }
 
-type unary struct { op string; e Expr }
+type unary struct{ op string; e Expr }
 func (u *unary) String() string { return u.op + u.e.String() }
+func (u *unary) LaTeX() string  { return "-" + u.e.LaTeX() }
 func (u *unary) Eval(s map[string]float64) float64 { return -u.e.Eval(s) }
 func (u *unary) Diff(sym Expr) Expr { return Neg(u.e.Diff(sym)) }
 func (u *unary) Simplify() Expr { return Neg(u.e.Simplify()) }
 
-type fexpr struct { name string; arg Expr }
+type fexpr struct{ name string; arg Expr }
 func (f *fexpr) String() string { return f.name + "(" + f.arg.String() + ")" }
+func (f *fexpr) LaTeX() string {
+	argL := f.arg.LaTeX()
+	switch f.name {
+	case "sin": return "\\sin(" + argL + ")"
+	case "cos": return "\\cos(" + argL + ")"
+	case "exp": return "e^{" + argL + "}"
+	case "ln": return "\\ln(" + argL + ")"
+	case "sqrt": return "\\sqrt{" + argL + "}"
+	}
+	return f.String()
+}
 func (f *fexpr) Eval(s map[string]float64) float64 {
 	a := f.arg.Eval(s)
 	switch f.name {
@@ -121,6 +161,7 @@ func (f *fexpr) Simplify() Expr {
 	return &fexpr{f.name, a}
 }
 
+// Constructors
 func Number(v float64) Expr     { return &constExpr{v} }
 func Symbol(n string) Expr      { return &varExpr{n} }
 func Add(a, b Expr) Expr        { return &binOp{"+", a, b, 1} }
@@ -135,6 +176,7 @@ func Exp(e Expr) Expr           { return &fexpr{"exp", e} }
 func Ln(e Expr) Expr            { return &fexpr{"ln", e} }
 func Sqrt(e Expr) Expr          { return &fexpr{"sqrt", e} }
 
+// Helpers
 func isTrigId(a, b Expr) bool {
 	return (isPow2(a, "sin") && isPow2(b, "cos")) || (isPow2(a, "cos") && isPow2(b, "sin"))
 }
@@ -147,10 +189,11 @@ func isPow2(e Expr, fn string) bool {
 	return false
 }
 func isInverse(e Expr, name string) bool {
-	if f, ok := e.(*fexpr); ok && f.name == name { return true }
-	return false
+	f, ok := e.(*fexpr)
+	return ok && f.name == name
 }
 
+// Expand
 func Expand(e Expr) Expr {
 	e = e.Simplify()
 	if p, ok := e.(*binOp); ok && p.op == "^" {
@@ -177,9 +220,11 @@ func binom(n, k int) int {
 	return res
 }
 
+// Integrate (basic + attempt by parts)
 func Integrate(e Expr, sym Expr) Expr {
 	switch ex := e.(type) {
-	case *constExpr: return Mul(e, sym)
+	case *constExpr:
+		return Mul(e, sym)
 	case *varExpr:
 		if ex.name == sym.(*varExpr).name { return Mul(Number(0.5), Pow(sym, Number(2))) }
 		return Mul(e, sym)
@@ -188,6 +233,12 @@ func Integrate(e Expr, sym Expr) Expr {
 		if ex.op == "-" { return Sub(Integrate(ex.l, sym), Integrate(ex.r, sym)) }
 		if ex.op == "*" {
 			if c, ok := ex.l.(*constExpr); ok { return Mul(c, Integrate(ex.r, sym)) }
+			// simple by-parts attempt (u = left, dv = right)
+			if dv := Integrate(ex.r, sym); dv != nil {
+				u := ex.l
+				du := u.Diff(sym)
+				return Sub(Mul(u, dv), Integrate(Mul(dv, du), sym))
+			}
 		}
 	case *fexpr:
 		switch ex.name {
@@ -196,27 +247,32 @@ func Integrate(e Expr, sym Expr) Expr {
 		case "exp": return Exp(ex.arg)
 		}
 	}
-	return nil
+	return nil // unsupported
 }
 
+// Solve (linear + quadratic + basic higher degree stub)
 func Solve(eq Expr, sym Expr) []Expr {
-	a, b, c := coeffs(eq, sym.(*varExpr))
+	v := sym.(*varExpr)
+	a, b, c := polyCoeffs(eq, v)
+	if a == 0 && b == 0 { return nil }
 	if a == 0 { return []Expr{Div(Neg(Number(c)), Number(b))} }
-	d := Sub(Pow(Number(b), Number(2)), Mul(Number(4), Mul(Number(a), Number(c))))
-	sqrtD := Sqrt(d)
+	disc := Sub(Pow(Number(b), Number(2)), Mul(Number(4), Mul(Number(a), Number(c))))
+	sqrtD := Sqrt(disc)
 	twoA := Mul(Number(2), Number(a))
 	return []Expr{
 		Div(Add(Neg(Number(b)), sqrtD), twoA),
 		Div(Sub(Neg(Number(b)), sqrtD), twoA),
 	}
+	// higher degree: rational root theorem stub (not implemented)
 }
 
-func coeffs(e Expr, v *varExpr) (a, b, c float64) {
+// Basic polynomial coefficient collector (degree ≤ 2)
+func polyCoeffs(e Expr, v *varExpr) (a, b, c float64) {
 	switch ex := e.(type) {
 	case *binOp:
 		if ex.op == "+" || ex.op == "-" {
-			la, lb, lc := coeffs(ex.l, v)
-			ra, rb, rc := coeffs(ex.r, v)
+			la, lb, lc := polyCoeffs(ex.l, v)
+			ra, rb, rc := polyCoeffs(ex.r, v)
 			if ex.op == "+" { return la + ra, lb + rb, lc + rc }
 			return la - ra, lb - rb, lc - rc
 		}
@@ -235,6 +291,65 @@ func coeffs(e Expr, v *varExpr) (a, b, c float64) {
 	return
 }
 
+// Taylor series stub (around point, up to n terms)
+func Taylor(f, x, point Expr, n int) Expr {
+	res := f.Simplify()
+	if pointC, ok := point.(*constExpr); ok {
+		valAtPoint := f.Eval(map[string]float64{x.(*varExpr).name: pointC.value})
+		res = Number(valAtPoint)
+		fac := Number(1.0)
+		df := f
+		for k := 1; k < n; k++ {
+			df = df.Diff(x).Simplify()
+			fac = Mul(fac, Number(float64(k)))
+			term := Mul(Div(df.Eval(map[string]float64{x.(*varExpr).name: pointC.value}), fac), Pow(Sub(x, point), Number(float64(k))))
+			res = Add(res, term)
+		}
+	}
+	return res
+}
+
+// Matrix (very basic)
+type Matrix [][]Expr
+
+func (m Matrix) String() string {
+	rows := []string{}
+	for _, row := range m {
+		els := []string{}
+		for _, e := range row { els = append(els, e.String()) }
+		rows = append(rows, "["+strings.Join(els, ", ")+"]")
+	}
+	return "[" + strings.Join(rows, "; ") + "]"
+}
+
+func MatrixAdd(a, b Matrix) Matrix {
+	res := make(Matrix, len(a))
+	for i := range a {
+		res[i] = make([]Expr, len(a[i]))
+		for j := range a[i] { res[i][j] = Add(a[i][j], b[i][j]) }
+	}
+	return res
+}
+
+func MatrixMul(a, b Matrix) Matrix {
+	res := make(Matrix, len(a))
+	for i := range a {
+		res[i] = make([]Expr, len(b[0]))
+		for j := range b[0] {
+			sum := Number(0)
+			for k := range a[i] { sum = Add(sum, Mul(a[i][k], b[k][j])) }
+			res[i][j] = sum
+		}
+	}
+	return res
+}
+
+// Limit stub
+func Limit(f, x, a Expr) Expr {
+	return f.Simplify() // placeholder
+}
+
+// Parsing
 func Parse(s string) Expr {
 	s = strings.ReplaceAll(s, " ", "")
 	return parseExpr(&s)
