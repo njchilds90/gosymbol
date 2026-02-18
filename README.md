@@ -1,39 +1,43 @@
 # go-sympy
 
-Minimal symbolic math library for Go — single file, zero dependencies. Inspired by SymPy.
+A compact symbolic algebra engine written in pure Go.
 
-Supports symbolic expressions, arithmetic (+ − × / ^ negation), trig/exp/log/sqrt functions, precedence-aware printing, LaTeX output, differentiation (general rules), basic simplification, string parsing, numerical evaluation, simple expansion, basic integration, and linear/quadratic solving.
+`go-sympy` provides basic symbolic mathematics capabilities in a single-file, dependency-free package. It is designed to be small, embeddable, and usable by both humans and AI agents.
 
-**Early prototype** — all development on Feb 18, 2026.
+This is **not** a full SymPy port. It is a lightweight symbolic system for Go projects that need algebraic manipulation without Python.
 
-## Installation
+---
+
+## ✨ Features
+
+- Symbolic expressions
+- Differentiation
+- Simplification
+- Substitution
+- Basic integration
+- Taylor series expansion
+- Linear and quadratic equation solving
+- Matrix operations
+- LaTeX output
+- Expression parsing from strings
+- Built-in constants: `pi`, `e`
+- Trig + exp + log + sqrt + abs
+
+All implemented in a **single file** with no external dependencies.
+
+---
+
+## 📦 Installation
 
 ```bash
 go get github.com/njchilds90/go-sympy
-How to Use the API
 
-Create variables: x := sympy.Symbol("x")
-Create constants: sympy.Number(5)
-Build expressions using these constructors:
-Add(a, b) → a + b
-Sub(a, b) → a - b
-Mul(a, b) → a * b
-Div(a, b) → a / b (uses ^-1 internally)
-Pow(a, b) → a ^ b
-Neg(e) → -e
-Sin(e), Cos(e), Exp(e), Ln(e), Sqrt(e)
+Then:
+import "github.com/njchilds90/go-sympy"
 
-Parse string: sympy.Parse("x^2 + 3*sin(x)")
-Differentiate: expr.Diff(x)
-Simplify: expr.Simplify()
-Evaluate numerically: expr.Eval(map[string]float64{"x": 2.0})
-Print: expr.String() or expr.LaTeX()
-Expand: sympy.Expand(expr)
-Integrate: sympy.Integrate(expr, x)
-Solve (equation = 0): sympy.Solve(equation, x) → returns []Expr (roots)
 
-Usage Examples
-Gopackage main
+🚀 Quick Example
+package main
 
 import (
 	"fmt"
@@ -43,42 +47,116 @@ import (
 func main() {
 	x := sympy.Symbol("x")
 
-	// Expression: x² + 3x
-	expr := sympy.Add(sympy.Pow(x, sympy.Number(2)), sympy.Mul(sympy.Number(3), x))
-	fmt.Println("Expression:", expr.String())          // x^2 + 3*x
-	fmt.Println("LaTeX:", expr.LaTeX())                 // x^{2} + 3 \cdot x
-	fmt.Println("Derivative:", expr.Diff(x).String())   // 2*x + 3
+	expr := sympy.Add(
+		sympy.Pow(x, sympy.Number(2)),
+		sympy.Number(3),
+	)
 
-	// Trig identity simplification
-	trig := sympy.Add(sympy.Pow(sympy.Sin(x), sympy.Number(2)), sympy.Pow(sympy.Cos(x), sympy.Number(2)))
-	fmt.Println("sin² + cos² →", trig.Simplify().String()) // 1
-
-	// Parsing from string
-	p := sympy.Parse("x^2 + sin(x)^2 + cos(x)^2 - 5")
-	fmt.Println("Parsed simplified:", p.Simplify().String()) // x^2 - 4
-
-	// Numerical evaluation
-	fmt.Printf("Eval at x=2: %.1f\n", expr.Eval(map[string]float64{"x": 2})) // 10.0
-
-	// Quadratic solve: x² - 5x + 6 = 0
-	quad := sympy.Sub(sympy.Pow(x, sympy.Number(2)), sympy.Add(sympy.Mul(sympy.Number(5), x), sympy.Number(6)))
-	sols := sympy.Solve(quad, x)
-	fmt.Println("Roots:", sols[0].String(), sols[1].String()) // e.g. 3 2
+	fmt.Println(expr)                 // x^2+3
+	fmt.Println(expr.Diff(x))         // 2*x
+	fmt.Println(expr.Eval(map[string]float64{"x": 2})) // 7
 }
-Features
 
-Variables & constants
-Operations: +, −, ×, / (via ^-1), ^, unary −
-Functions: sin, cos, exp, ln, sqrt
-Precedence-aware printing & LaTeX
-Differentiation (general rules)
-Basic simplification (constants, identities, trig)
-String parsing
-Numerical evaluation
-Basic expansion & integration
-Linear + quadratic solving
+🧠 Expression Construction
+Expressions are built using constructors:
+x := Symbol("x")
 
-Limitations
-Early prototype — missing deep simplification, full integration, higher-degree solving, multi-var partials, series, matrices, limits, exact rationals. No unit tests yet.
-Contributing
-Fork → branch → PR. Tests, more rules, docs welcome.
+Add(a, b)
+Sub(a, b)
+Mul(a, b)
+Div(a, b)
+Pow(a, b)
+
+Sin(x)
+Cos(x)
+Tan(x)
+Exp(x)
+Ln(x)
+Sqrt(x)
+Abs(x)
+
+🔍 Parsing Expressions
+
+You can parse strings:
+expr := sympy.Parse("sin(x)^2 + cos(x)^2")
+fmt.Println(expr.Simplify())   // 1
+Supported operators:
+
++
+
+-
+
+*
+
+/
+
+^
+
+Supported functions:
+
+sin
+
+cos
+
+tan
+
+exp
+
+ln
+
+sqrt
+
+abs
+
+Constants:
+
+pi
+
+e
+
+
+📉 Differentiation:
+x := sympy.Symbol("x")
+f := sympy.Parse("x^3 + 2*x")
+
+df := f.Diff(x).Simplify()
+
+fmt.Println(df)   // 3*x^2+2
+
+📈 Integration:
+x := sympy.Symbol("x")
+f := sympy.Sin(x)
+
+F := sympy.Integrate(f, x)
+
+fmt.Println(F)    // -cos(x)
+val := sympy.IntegrateDefinite(sympy.Sin(x), x, 0, math.Pi)
+
+📊 Taylor Series:
+x := sympy.Symbol("x")
+f := sympy.Exp(x)
+
+t := sympy.Taylor(f, x, sympy.Number(0), 5)
+fmt.Println(t)
+
+
+🧮 Solving Equations
+Supports linear and quadratic equations:
+x := sympy.Symbol("x")
+eq := sympy.Parse("x^2 - 4")
+
+roots := sympy.Solve(eq, x)
+
+🧩 Matrix Support:
+A := sympy.Matrix{
+	{sympy.Number(1), sympy.Number(2)},
+	{sympy.Number(3), sympy.Number(4)},
+}
+
+B := sympy.Matrix{
+	{sympy.Number(5), sympy.Number(6)},
+	{sympy.Number(7), sympy.Number(8)},
+}
+
+C := sympy.MatrixMul(A, B)
+fmt.Println(C)
