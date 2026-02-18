@@ -1,467 +1,379 @@
+// sympy.go
+// Compact symbolic math engine in one file.
+// Deterministic, rational-aware, rule-based, AI-embeddable.
+//
+// Limitations:
+// - No advanced factoring
+// - No symbolic matrix inversion
+// - No symbolic limits beyond substitution
+// - Simplification is rule-based, not canonical
+// - Integration is pattern-based
+
 package sympy
-
-/*
-Package sympy is a compact symbolic algebra engine written in pure Go.
-
-Features:
-- Symbolic expressions
-- Differentiation
-- Simplification
-- Substitution
-- Integration (basic)
-- Taylor series
-- Polynomial solving (linear, quadratic)
-- Matrix operations
-- Parsing from string
-- LaTeX output
-
-Example:
-
-	x := Symbol("x")
-	expr := Add(Pow(x, Number(2)), Number(3))
-
-	println(expr.String())                         // x^2+3
-	println(expr.Diff(x).String())                 // 2*x
-	println(expr.Eval(map[string]float64{"x":2}))  // 7
-*/
 
 import (
 	"fmt"
 	"math"
-	"strconv"
+	"math/big"
+	"sort"
 	"strings"
-	"unicode"
 )
 
+/* =======================
+   Rational
+======================= */
+
+type Rational struct{ *big.Rat }
+
+func NewInt(n int64) Rational     { return Rational{big.NewRat(n, 1)} }
+func NewFrac(a, b int64) Rational { return Rational{big.NewRat(a, b)} }
+func Zero() Rational              { return NewInt(0) }
+func One() Rational               { return NewInt(1) }
+
+func (r Rational) Add(o Rational) Rational { return Rational{new(big.Rat).Add(r.Rat, o.Rat)} }
+func (r Rational) Sub(o Rational) Rational { return Rational{new(big.Rat).Sub(r.Rat, o.Rat)} }
+func (r Rational) Mul(o Rational) Rational { return Rational{new(big.Rat).Mul(r.Rat, o.Rat)} }
+func (r Rational) Div(o Rational) Rational { return Rational{new(big.Rat).Quo(r.Rat, o.Rat)} }
+func (r Rational) Neg() Rational           { return Rational{new(big.Rat).Neg(r.Rat)} }
+func (r Rational) IsZero() bool            { return r.Sign() == 0 }
+func (r Rational) String() string          { return r.Rat.RatString() }
+
+/* =======================
+   Expr Core
+======================= */
+
 type Expr interface {
-	String() string
-	LaTeX() string
-	Eval(map[string]float64) float64
-	Diff(Expr) Expr
 	Simplify() Expr
-	Subst(old, new Expr) Expr
+	String() string
+	Sub(varName string, value Expr) Expr
 }
 
-/* ===========================
-   Core Expressions
-=========================== */
+/* Public Helpers */
 
-type constExpr struct{ value float64 }
+func Simplify(e Expr) Expr { return e.Simplify() }
+func String(e Expr) string { return e.Simplify().String() }
 
-func (c *constExpr) String() string  { return fmt.Sprintf("%g", c.value) }
-func (c *constExpr) LaTeX() string   { return fmt.Sprintf("%.10g", c.value) }
-func (c *constExpr) Eval(_ map[string]float64) float64 { return c.value }
-func (c *constExpr) Diff(_ Expr) Expr                  { return Number(0) }
-func (c *constExpr) Simplify() Expr                    { return c }
-func (c *constExpr) Subst(_, _ Expr) Expr              { return c }
+/* ---------- Num ---------- */
 
-type varExpr struct{ name string }
+type Num struct{ V Rational }
 
-func (v *varExpr) String() string  { return v.name }
-func (v *varExpr) LaTeX() string   { return v.name }
-func (v *varExpr) Eval(s map[string]float64) float64 {
-	if val, ok := s[v.name]; ok {
+func N(n int64) Expr    { return Num{NewInt(n)} }
+func F(a, b int64) Expr { return Num{NewFrac(a, b)} }
+
+func (n Num) Simplify() Expr { return n }
+func (n Num) String() string { return n.V.String() }
+func (n Num) Sub(string, Expr) Expr {
+	return n
+}
+
+/* ---------- Sym ---------- */
+
+type Sym struct{ Name string }
+
+func S(name string) Expr { return Sym{Name: name} }
+
+func (s Sym) Simplify() Expr { return s }
+func (s Sym) String() string { return s.Name }
+func (s Sym) Sub(v string, val Expr) Expr {
+	if s.Name == v {
 		return val
 	}
-	return math.NaN()
-}
-func (v *varExpr) Diff(sym Expr) Expr {
-	if vv, ok := sym.(*varExpr); ok && vv.name == v.name {
-		return Number(1)
-	}
-	return Number(0)
-}
-func (v *varExpr) Simplify() Expr { return v }
-func (v *varExpr) Subst(old, new Expr) Expr {
-	if o, ok := old.(*varExpr); ok && o.name == v.name {
-		return new
-	}
-	return v
+	return s
 }
 
-type binOp struct {
-	op   string
-	l, r Expr
-	prec int
+/* ---------- Add ---------- */
+
+type Add struct{ Terms []Expr }
+
+func AddOf(terms ...Expr) Expr { return Add{terms}.Simplify() }
+
+func (a Add) Simplify() Expr {
+	var flat []Expr
+	sum := Zero()
+
+	for _, t := range a.Terms {
+		t = t.Simplify()
+		switch v := t.(type) {
+		case Add:
+			flat = append(flat, v.Terms...)
+		case Num:
+			sum = sum.Add(v.V)
+		default:
+			flat = append(flat, t)
+		}
+	}
+
+	if !sum.IsZero() {
+		flat = append(flat, Num{sum})
+	}
+
+	if len(flat) == 0 {
+		return Num{Zero()}
+	}
+	if len(flat) == 1 {
+		return flat[0]
+	}
+
+	sort.Slice(flat, func(i, j int) bool {
+		return flat[i].String() < flat[j].String()
+	})
+
+	return Add{flat}
 }
 
-func (b *binOp) String() string {
-	ls, rs := b.l.String(), b.r.String()
-	if lb, ok := b.l.(*binOp); ok && lb.prec < b.prec {
-		ls = "(" + ls + ")"
+func (a Add) String() string {
+	parts := make([]string, len(a.Terms))
+	for i, t := range a.Terms {
+		parts[i] = t.String()
 	}
-	if rb, ok := b.r.(*binOp); ok && rb.prec <= b.prec {
-		rs = "(" + rs + ")"
-	}
-	return ls + b.op + rs
+	return strings.Join(parts, " + ")
 }
 
-func (b *binOp) LaTeX() string {
-	ls, rs := b.l.LaTeX(), b.r.LaTeX()
-	switch b.op {
-	case "+": return ls + " + " + rs
-	case "-": return ls + " - " + rs
-	case "*": return ls + "\\cdot " + rs
-	case "/": return "\\frac{" + ls + "}{" + rs + "}"
-	case "^": return ls + "^{" + rs + "}"
+func (a Add) Sub(v string, val Expr) Expr {
+	var out []Expr
+	for _, t := range a.Terms {
+		out = append(out, t.Sub(v, val))
 	}
-	return b.String()
+	return AddOf(out...)
 }
 
-func (b *binOp) Eval(s map[string]float64) float64 {
-	lv, rv := b.l.Eval(s), b.r.Eval(s)
-	switch b.op {
-	case "+": return lv + rv
-	case "-": return lv - rv
-	case "*": return lv * rv
-	case "/": return lv / rv
-	case "^": return math.Pow(lv, rv)
+/* ---------- Mul ---------- */
+
+type Mul struct{ Factors []Expr }
+
+func MulOf(factors ...Expr) Expr { return Mul{factors}.Simplify() }
+
+func (m Mul) Simplify() Expr {
+	var flat []Expr
+	prod := One()
+
+	for _, f := range m.Factors {
+		f = f.Simplify()
+		switch v := f.(type) {
+		case Mul:
+			flat = append(flat, v.Factors...)
+		case Num:
+			prod = prod.Mul(v.V)
+		default:
+			flat = append(flat, f)
+		}
 	}
-	return math.NaN()
+
+	if prod.IsZero() {
+		return Num{Zero()}
+	}
+	if prod.Cmp(big.NewRat(1, 1)) != 0 {
+		flat = append(flat, Num{prod})
+	}
+
+	if len(flat) == 0 {
+		return Num{prod}
+	}
+	if len(flat) == 1 {
+		return flat[0]
+	}
+
+	sort.Slice(flat, func(i, j int) bool {
+		return flat[i].String() < flat[j].String()
+	})
+
+	return Mul{flat}
 }
 
-func (b *binOp) Diff(sym Expr) Expr {
-	ld, rd := b.l.Diff(sym), b.r.Diff(sym)
-	switch b.op {
-	case "+": return Add(ld, rd)
-	case "-": return Sub(ld, rd)
-	case "*": return Add(Mul(ld, b.r), Mul(b.l, rd))
-	case "/": return Div(Sub(Mul(ld, b.r), Mul(b.l, rd)), Pow(b.r, Number(2)))
-	case "^":
-		return Mul(b,
-			Add(
-				Mul(rd, Ln(b.l)),
-				Mul(b.r, Div(ld, b.l)),
-			),
-		)
+func (m Mul) String() string {
+	parts := make([]string, len(m.Factors))
+	for i, f := range m.Factors {
+		parts[i] = f.String()
 	}
-	return Number(0)
+	return strings.Join(parts, "*")
 }
 
-func (b *binOp) Simplify() Expr {
-	l, r := b.l.Simplify(), b.r.Simplify()
+func (m Mul) Sub(v string, val Expr) Expr {
+	var out []Expr
+	for _, f := range m.Factors {
+		out = append(out, f.Sub(v, val))
+	}
+	return MulOf(out...)
+}
 
-	// constant folding
-	if lc, ok := l.(*constExpr); ok {
-		if rc, ok := r.(*constExpr); ok {
-			switch b.op {
-			case "+": return Number(lc.value + rc.value)
-			case "-": return Number(lc.value - rc.value)
-			case "*": return Number(lc.value * rc.value)
-			case "/": return Number(lc.value / rc.value)
-			case "^": return Number(math.Pow(lc.value, rc.value))
+/* ---------- Pow ---------- */
+
+type Pow struct{ Base, Exp Expr }
+
+func PowOf(b, e Expr) Expr { return Pow{b, e}.Simplify() }
+
+func (p Pow) Simplify() Expr {
+	b := p.Base.Simplify()
+	e := p.Exp.Simplify()
+
+	if en, ok := e.(Num); ok {
+		if en.V.IsZero() {
+			return Num{One()}
+		}
+		if en.V.Cmp(big.NewRat(1, 1)) == 0 {
+			return b
+		}
+	}
+
+	return Pow{b, e}
+}
+
+func (p Pow) String() string {
+	return fmt.Sprintf("(%s)^%s", p.Base, p.Exp)
+}
+
+func (p Pow) Sub(v string, val Expr) Expr {
+	return PowOf(p.Base.Sub(v, val), p.Exp.Sub(v, val))
+}
+
+/* =======================
+   Polynomial Utilities
+======================= */
+
+func Degree(e Expr, v string) int {
+	switch t := e.(type) {
+
+	case Num:
+		return 0
+
+	case Sym:
+		if t.Name == v {
+			return 1
+		}
+		return 0
+
+	case Add:
+		max := 0
+		for _, term := range t.Terms {
+			d := Degree(term, v)
+			if d > max {
+				max = d
+			}
+		}
+		return max
+
+	case Mul:
+		sum := 0
+		for _, f := range t.Factors {
+			sum += Degree(f, v)
+		}
+		return sum
+
+	case Pow:
+		if base, ok := t.Base.(Sym); ok && base.Name == v {
+			if exp, ok := t.Exp.(Num); ok {
+				i, _ := exp.V.Int64()
+				return int(i)
 			}
 		}
 	}
 
-	switch b.op {
+	return 0
+}
 
-	case "+":
-		if isZero(l) { return r }
-		if isZero(r) { return l }
+// PolyCoeffs extracts polynomial coefficients: map[degree]Rational
+func PolyCoeffs(e Expr, v string) map[int]Rational {
+	coeffs := map[int]Rational{}
 
-	case "-":
-		if isZero(r) { return l }
-		if Equal(l, r) { return Number(0) }
+	var collect func(Expr)
+	collect = func(ex Expr) {
+		switch t := ex.(type) {
 
-	case "*":
-		if isZero(l) || isZero(r) { return Number(0) }
-		if isOne(l) { return r }
-		if isOne(r) { return l }
+		case Add:
+			for _, term := range t.Terms {
+				collect(term)
+			}
 
-	case "/":
-		if isZero(l) { return Number(0) }
-		if isOne(r) { return l }
-		if Equal(l, r) { return Number(1) }
+		case Mul:
+			deg := Degree(t, v)
+			c := One()
+			for _, f := range t.Factors {
+				if n, ok := f.(Num); ok {
+					c = c.Mul(n.V)
+				}
+			}
+			coeffs[deg] = coeffs[deg].Add(c)
 
-	case "^":
-		if rc, ok := r.(*constExpr); ok {
-			if rc.value == 1 { return l }
-			if rc.value == 0 { return Number(1) }
+		case Pow:
+			deg := Degree(t, v)
+			coeffs[deg] = coeffs[deg].Add(One())
+
+		case Sym:
+			if t.Name == v {
+				coeffs[1] = coeffs[1].Add(One())
+			}
+
+		case Num:
+			coeffs[0] = coeffs[0].Add(t.V)
 		}
 	}
 
-	if b.op == "+" && isTrigId(l, r) {
-		return Number(1)
-	}
-
-	return &binOp{b.op, l, r, b.prec}
+	collect(e.Simplify())
+	return coeffs
 }
 
-func (b *binOp) Subst(old, new Expr) Expr {
-	return &binOp{
-		b.op,
-		b.l.Subst(old, new),
-		b.r.Subst(old, new),
-		b.prec,
-	}
+/* =======================
+   Solvers
+======================= */
+
+func SolveLinear(a, b Rational) Rational {
+	return b.Neg().Div(a)
 }
 
-type unary struct{ op string; e Expr }
-
-func (u *unary) String() string  { return u.op + u.e.String() }
-func (u *unary) LaTeX() string   { return "-" + u.e.LaTeX() }
-func (u *unary) Eval(s map[string]float64) float64 { return -u.e.Eval(s) }
-func (u *unary) Diff(sym Expr) Expr                { return Neg(u.e.Diff(sym)) }
-func (u *unary) Simplify() Expr                    { return Neg(u.e.Simplify()) }
-func (u *unary) Subst(old, new Expr) Expr          { return &unary{u.op, u.e.Subst(old, new)} }
-
-type fexpr struct {
-	name string
-	arg  Expr
-}
-
-func (f *fexpr) String() string { return f.name + "(" + f.arg.String() + ")" }
-
-func (f *fexpr) LaTeX() string {
-	arg := f.arg.LaTeX()
-	switch f.name {
-	case "sin": return "\\sin(" + arg + ")"
-	case "cos": return "\\cos(" + arg + ")"
-	case "tan": return "\\tan(" + arg + ")"
-	case "exp": return "e^{" + arg + "}"
-	case "ln":  return "\\ln(" + arg + ")"
-	case "sqrt": return "\\sqrt{" + arg + "}"
-	case "abs": return "\\left|" + arg + "\\right|"
-	}
-	return f.String()
-}
-
-func (f *fexpr) Eval(s map[string]float64) float64 {
-	a := f.arg.Eval(s)
-	switch f.name {
-	case "sin": return math.Sin(a)
-	case "cos": return math.Cos(a)
-	case "tan": return math.Tan(a)
-	case "exp": return math.Exp(a)
-	case "ln":  return math.Log(a)
-	case "sqrt": return math.Sqrt(a)
-	case "abs": return math.Abs(a)
-	}
-	return math.NaN()
-}
-
-func (f *fexpr) Diff(sym Expr) Expr {
-	d := f.arg.Diff(sym)
-	switch f.name {
-	case "sin": return Mul(Cos(f.arg), d)
-	case "cos": return Neg(Mul(Sin(f.arg), d))
-	case "tan": return Mul(Add(Number(1), Pow(Tan(f.arg), Number(2))), d)
-	case "exp": return Mul(Exp(f.arg), d)
-	case "ln":  return Div(d, f.arg)
-	case "sqrt": return Mul(Number(0.5), Div(d, f))
-	}
-	return Number(0)
-}
-
-func (f *fexpr) Simplify() Expr {
-	a := f.arg.Simplify()
-	if c, ok := a.(*constExpr); ok {
-		switch f.name {
-		case "sin": return Number(math.Sin(c.value))
-		case "cos": return Number(math.Cos(c.value))
-		case "tan": return Number(math.Tan(c.value))
-		case "exp": return Number(math.Exp(c.value))
-		case "ln":
-			if c.value > 0 { return Number(math.Log(c.value)) }
-		case "sqrt":
-			if c.value >= 0 { return Number(math.Sqrt(c.value)) }
-		case "abs":
-			return Number(math.Abs(c.value))
-		}
-	}
-	return &fexpr{f.name, a}
-}
-
-func (f *fexpr) Subst(old, new Expr) Expr {
-	return &fexpr{f.name, f.arg.Subst(old, new)}
-}
-
-/* ===========================
-   Constructors
-=========================== */
-
-func Number(v float64) Expr { return &constExpr{v} }
-func Symbol(n string) Expr  { return &varExpr{n} }
-func Add(a, b Expr) Expr    { return &binOp{"+", a, b, 1} }
-func Sub(a, b Expr) Expr    { return &binOp{"-", a, b, 1} }
-func Mul(a, b Expr) Expr    { return &binOp{"*", a, b, 2} }
-func Div(a, b Expr) Expr    { return &binOp{"/", a, b, 2} }
-func Pow(a, b Expr) Expr    { return &binOp{"^", a, b, 3} }
-func Neg(e Expr) Expr       { return &unary{"-", e} }
-func Sin(e Expr) Expr       { return &fexpr{"sin", e} }
-func Cos(e Expr) Expr       { return &fexpr{"cos", e} }
-func Tan(e Expr) Expr       { return &fexpr{"tan", e} }
-func Exp(e Expr) Expr       { return &fexpr{"exp", e} }
-func Ln(e Expr) Expr        { return &fexpr{"ln", e} }
-func Sqrt(e Expr) Expr      { return &fexpr{"sqrt", e} }
-func Abs(e Expr) Expr       { return &fexpr{"abs", e} }
-
-/* ===========================
-   Utilities
-=========================== */
-
-func Equal(a, b Expr) bool {
-	return a.Simplify().String() == b.Simplify().String()
-}
-
-func isZero(e Expr) bool {
-	if c, ok := e.(*constExpr); ok {
-		return c.value == 0
-	}
-	return false
-}
-
-func isOne(e Expr) bool {
-	if c, ok := e.(*constExpr); ok {
-		return c.value == 1
-	}
-	return false
-}
-
-func SimplifyDeep(e Expr) Expr {
-	prev := e
-	for {
-		next := prev.Simplify()
-		if next.String() == prev.String() {
-			return next
-		}
-		prev = next
-	}
-}
-
-/* ===========================
-   Parser
-=========================== */
-
-func Parse(s string) Expr {
-	s = strings.ReplaceAll(s, " ", "")
-	return parseExpr(&s)
-}
-
-func parseExpr(s *string) Expr { return parseAddSub(s) }
-
-func parseAddSub(s *string) Expr {
-	e := parseMul(s)
-	for len(*s) > 0 {
-		op := (*s)[0]
-		if op != '+' && op != '-' {
-			break
-		}
-		*s = (*s)[1:]
-		t := parseMul(s)
-		if op == '+' {
-			e = Add(e, t)
-		} else {
-			e = Sub(e, t)
-		}
-	}
-	return e
-}
-
-func parseMul(s *string) Expr {
-	e := parsePow(s)
-	for len(*s) > 0 {
-		op := (*s)[0]
-		if op != '*' && op != '/' {
-			break
-		}
-		*s = (*s)[1:]
-		t := parsePow(s)
-		if op == '*' {
-			e = Mul(e, t)
-		} else {
-			e = Div(e, t)
-		}
-	}
-	return e
-}
-
-func parsePow(s *string) Expr {
-	e := parseAtom(s)
-	if len(*s) > 0 && (*s)[0] == '^' {
-		*s = (*s)[1:]
-		e = Pow(e, parseAtom(s))
-	}
-	return e
-}
-
-func parseAtom(s *string) Expr {
-	if len(*s) == 0 {
+func SolveQuadratic(a, b, c float64) []float64 {
+	d := b*b - 4*a*c
+	if d < 0 {
 		return nil
 	}
-	c := (*s)[0]
-
-	if unicode.IsDigit(rune(c)) || c == '.' {
-		return parseNum(s)
+	s := math.Sqrt(d)
+	return []float64{
+		(-b + s) / (2 * a),
+		(-b - s) / (2 * a),
 	}
+}
 
-	if unicode.IsLetter(rune(c)) {
-		return parseId(s)
-	}
+/* =======================
+   Integration
+======================= */
 
-	if c == '(' {
-		*s = (*s)[1:]
-		e := parseExpr(s)
-		if len(*s) > 0 && (*s)[0] == ')' {
-			*s = (*s)[1:]
+func Integrate(e Expr, v string) Expr {
+	switch t := e.(type) {
+
+	case Num:
+		return MulOf(t, S(v))
+
+	case Sym:
+		if t.Name == v {
+			return MulOf(F(1, 2), PowOf(t, N(2)))
 		}
-		return e
-	}
+		return MulOf(t, S(v))
 
-	if c == '-' {
-		*s = (*s)[1:]
-		return Neg(parseAtom(s))
+	case Add:
+		var parts []Expr
+		for _, term := range t.Terms {
+			parts = append(parts, Integrate(term, v))
+		}
+		return AddOf(parts...)
+
+	case Mul:
+		if len(t.Factors) == 2 {
+			if c, ok := t.Factors[0].(Num); ok {
+				return MulOf(c, Integrate(t.Factors[1], v))
+			}
+		}
+
+	case Pow:
+		if base, ok := t.Base.(Sym); ok && base.Name == v {
+			if exp, ok := t.Exp.(Num); ok {
+				n := exp.V
+				newExp := n.Add(One())
+				return MulOf(
+					Num{One().Div(newExp)},
+					PowOf(base, Num{newExp}),
+				)
+			}
+		}
 	}
 
 	return nil
-}
-
-func parseNum(s *string) Expr {
-	n := ""
-	for len(*s) > 0 {
-		c := (*s)[0]
-		if unicode.IsDigit(rune(c)) || c == '.' {
-			n += string(c)
-			*s = (*s)[1:]
-		} else {
-			break
-		}
-	}
-	v, _ := strconv.ParseFloat(n, 64)
-	return Number(v)
-}
-
-func parseId(s *string) Expr {
-	id := ""
-	for len(*s) > 0 && unicode.IsLetter(rune((*s)[0])) {
-		id += string((*s)[0])
-		*s = (*s)[1:]
-	}
-
-	if id == "pi" {
-		return Number(math.Pi)
-	}
-	if id == "e" {
-		return Number(math.E)
-	}
-
-	if len(*s) > 0 && (*s)[0] == '(' {
-		*s = (*s)[1:]
-		arg := parseExpr(s)
-		if len(*s) > 0 && (*s)[0] == ')' {
-			*s = (*s)[1:]
-		}
-		switch id {
-		case "sin": return Sin(arg)
-		case "cos": return Cos(arg)
-		case "tan": return Tan(arg)
-		case "exp": return Exp(arg)
-		case "ln":  return Ln(arg)
-		case "sqrt": return Sqrt(arg)
-		case "abs": return Abs(arg)
-		}
-	}
-
-	return Symbol(id)
 }
