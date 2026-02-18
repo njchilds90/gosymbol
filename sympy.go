@@ -94,6 +94,7 @@ func (b *binOp) Simplify() Expr {
 	if b.op == "+" && isTrigId(l, r) { return Number(1) }
 	if b.op == "-" && l.String() == r.String() { return Number(0) }
 	if b.op == "/" && l.String() == r.String() { return Number(1) }
+	if b.op == "*" && isZero(l) || isZero(r) { return Number(0) }
 	return &binOp{b.op, l, r, b.prec}
 }
 
@@ -332,10 +333,7 @@ func deg(e Expr, v *varExpr) int {
 
 func max(a, b int) int { if a > b { return a }; return b }
 
-func polyDiv(e, factor Expr, v *varExpr) Expr {
-	// synthetic division stub for conciseness
-	return e // placeholder, full impl would use coeff list
-}
+func polyDiv(e, factor Expr, v *varExpr) Expr { return e } // stub
 
 func Taylor(f, x, point Expr, n int) Expr {
 	res := f.Simplify()
