@@ -1,35 +1,35 @@
-# Contributing to go-sympy
+# Contributing to go-symbol
 
-Thank you for your interest in contributing. go-sympy is a minimal symbolic math kernel and contributions are welcome — especially ones that stay true to the design goals.
+Thank you for your interest in contributing. go-symbol is a minimal symbolic math kernel and contributions are welcome — especially ones that stay true to the design goals.
 
 ---
 
 ## Design Principles
 
-Before contributing, please understand what go-sympy is and isn't:
+Before contributing, please understand what gosymbol is and isn't:
 
-**go-sympy IS:**
+**gosymbol IS:**
 - A minimal, single-file symbolic kernel
 - Zero-dependency
 - Deterministic (same input → same output, always)
 - AI/agent embeddable
 - Educational and readable
 
-**go-sympy IS NOT:**
+**gosymbol IS NOT:**
 - A full SymPy port
 - A numeric computing library
 - A CAS with every possible feature
 - A replacement for Mathematica/Maple
 
-If your contribution would turn `sympy.go` into a multi-thousand line file that requires external dependencies, it's probably better suited as a separate package that imports go-sympy.
+If your contribution would turn `sympy.go` into a multi-thousand line file that requires external dependencies, it's probably better suited as a separate package that imports gosymbol.
 
 ---
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/njchilds90/go-sympy.git
-cd go-sympy
+git clone https://github.com/njchilds90/gosymbol.git
+cd gosymbol
 go test ./...
 ```
 
