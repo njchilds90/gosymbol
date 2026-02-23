@@ -1,11 +1,11 @@
-package gosympy_test
+package gosymbol_test
 
 import (
 	"encoding/json"
 	"strings"
 	"testing"
 
-	gosympy "github.com/njchilds90/go-sympy"
+	gosymbol "github.com/njchilds90/gosymbol"
 )
 
 // ============================================================
