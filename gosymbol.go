@@ -6,7 +6,7 @@
 //   - Deterministic simplification and stable output
 //   - AI/LLM friendly: JSON, LaTeX, and MCP-ready APIs
 //   - Embeddable in Go services, CLI tools, and agent backends
-package gosympy
+package gosymbol
 
 import (
 	"encoding/json"
