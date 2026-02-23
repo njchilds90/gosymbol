@@ -37,7 +37,7 @@ go get github.com/njchilds90/gosymbol
 ## Quick Start
 
 ```go
-import gosympy "github.com/njchilds90/gosymbol"
+import gosymbol "github.com/njchilds90/gosymbol"
 
 x := gosympy.S("x")
 
@@ -70,7 +70,7 @@ fmt.Println(gosympy.String(v))     // 13
 
 | Goal | Status |
 |------|--------|
-| Single file (`sympy.go`) | ✅ |
+| Single file (`gosymbol.go`) | ✅ |
 | Zero external dependencies | ✅ |
 | Deterministic simplification | ✅ |
 | Exact rational arithmetic | ✅ (`math/big.Rat`) |
