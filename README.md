@@ -1,7 +1,7 @@
-# go-sympy
+# gosymbol
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/njchilds90/go-sympy.svg)](https://pkg.go.dev/github.com/njchilds90/go-sympy)
-[![Tests](https://github.com/njchilds90/go-sympy/actions/workflows/ci.yml/badge.svg)](https://github.com/njchilds90/go-sympy/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/njchilds90/gosymbol.svg)](https://pkg.go.dev/github.com/njchilds90/gosymbol)
+[![Tests](https://github.com/njchilds90/gosymbol/actions/workflows/ci.yml/badge.svg)](https://github.com/njchilds90/gosymbol/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Minimal deterministic symbolic math kernel in pure Go.**
@@ -10,11 +10,11 @@ Single file. Zero dependencies. Exact rational arithmetic. AI-agent ready.
 
 ---
 
-## Why go-sympy?
+## Why gosymbol?
 
 Python has SymPy. Go has... mostly numeric math.
 
-`go-sympy` fills the gap with a compact symbolic core purpose-built for:
+`gosymbol` fills the gap with a compact symbolic core purpose-built for:
 
 - AI agents and LLM tool backends that need exact symbolic reasoning
 - Go microservices performing algebraic transforms
@@ -29,7 +29,7 @@ This is **not** a full SymPy port. It is a small, predictable, embeddable symbol
 ## Installation
 
 ```bash
-go get github.com/njchilds90/go-sympy
+go get github.com/njchilds90/gosymbol
 ```
 
 ---
@@ -37,7 +37,7 @@ go get github.com/njchilds90/go-sympy
 ## Quick Start
 
 ```go
-import gosympy "github.com/njchilds90/go-sympy"
+import gosympy "github.com/njchilds90/gosymbol"
 
 x := gosympy.S("x")
 
