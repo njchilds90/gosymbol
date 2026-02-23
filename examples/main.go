@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	gosympy "github.com/njchilds90/gosymbol"
+	gosymbol "github.com/njchilds90/gosymbol"
 )
 
 func section(title string) {
