@@ -35,7 +35,7 @@ func main() {
 	// ── Like-term combination ──────────────────────────────────
 	section("Like-term combination")
 	expr := gosymbol.AddOf(x, x, x, gosymbol.N(2))
-	fmt.Println("x + x + x + 2      =", gosymbol.String(expr))
+	fmt.Println("x + x + x + 2      =", gosymbol.String(expr)) // 3*x + 2
 
 	// ── Rational arithmetic ────────────────────────────────────
 	section("Exact rational arithmetic")
@@ -48,17 +48,18 @@ func main() {
 
 	// ── Substitution ──────────────────────────────────────────
 	section("Substitution")
-	fmt.Println("2x+3 at x=5        =", gosymbol.String(gosymbol.Sub(linear, "x", gosymbol.N(5))))
+	fmt.Println("2x+3 at x=5        =", gosymbol.String(gosymbol.Sub(linear, "x", gosymbol.N(5)))) // 13
 
 	// ── Differentiation ───────────────────────────────────────
 	section("Differentiation")
 	fmt.Println("d/dx(x^2-4x+4)     =", gosymbol.String(gosymbol.Diff(quad, "x")))
 	fmt.Println("d^2/dx^2(x^4)      =", gosymbol.String(gosymbol.Diff2(gosymbol.PowOf(x, gosymbol.N(4)), "x")))
-	fmt.Println("d^4/dx^4(x^4)      =", gosymbol.String(gosymbol.DiffN(gosymbol.PowOf(x, gosymbol.N(4)), "x", 4)))
+	fmt.Println("d^4/dx^4(x^4)      =", gosymbol.String(gosymbol.DiffN(gosymbol.PowOf(x, gosymbol.N(4)), "x", 4))) // 24
 	fmt.Println("d/dx(sin(x))       =", gosymbol.String(gosymbol.Diff(gosymbol.SinOf(x), "x")))
 	fmt.Println("d/dx(cos(x))       =", gosymbol.String(gosymbol.Diff(gosymbol.CosOf(x), "x")))
 	fmt.Println("d/dx(exp(x))       =", gosymbol.String(gosymbol.Diff(gosymbol.ExpOf(x), "x")))
 	fmt.Println("d/dx(ln(x))        =", gosymbol.String(gosymbol.Diff(gosymbol.LnOf(x), "x")))
+	// Chain rule: d/dx sin(x^2) = cos(x^2) * 2x
 	chainExpr := gosymbol.SinOf(gosymbol.PowOf(x, gosymbol.N(2)))
 	fmt.Println("d/dx(sin(x^2))     =", gosymbol.String(gosymbol.Diff(chainExpr, "x")))
 
