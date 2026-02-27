@@ -56,7 +56,6 @@ New node types (e.g., `Floor`, `Ceiling`, `Piecewise`) must:
 
 ### New MCP Tool
 - Add to `HandleToolCall`'s switch statement
-- Add to `MCPToolSpec()`
 - Add to the AGENTS.md tool table and a worked example
 - Add tests for the tool call path
 
@@ -74,8 +73,8 @@ New node types (e.g., `Floor`, `Ceiling`, `Piecewise`) must:
 
 ## Test Coverage
 
-All new code must have tests in `sympy_test.go`. Tests should:
-- Use `package gosympy_test` (black-box testing)
+All new code must have tests in `gosymbol_test.go`. Tests should:
+- Use `package gosymbol_test` (black-box testing)
 - Cover the happy path
 - Cover edge cases (zero, one, negative, rational)
 - Cover error/failure cases
