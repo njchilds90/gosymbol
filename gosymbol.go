@@ -1,4 +1,4 @@
-// Package gosympy provides a deterministic symbolic math kernel for Go.
+// Package gosymbol provides a deterministic symbolic math kernel for Go.
 //
 // Design goals:
 //   - Single file, zero external dependencies
@@ -252,19 +252,44 @@ func (a *Add) String() string {
 	if len(a.terms) == 0 {
 		return "0"
 	}
-	parts := make([]string, len(a.terms))
+	var b strings.Builder
 	for i, t := range a.terms {
-		parts[i] = t.String()
+		s := t.String()
+		if i == 0 {
+			b.WriteString(s)
+			continue
+		}
+		if strings.HasPrefix(s, "-") {
+			b.WriteString(" - ")
+			b.WriteString(strings.TrimPrefix(s, "-"))
+			continue
+		}
+		b.WriteString(" + ")
+		b.WriteString(s)
 	}
-	return strings.Join(parts, " + ")
+	return b.String()
 }
 
 func (a *Add) LaTeX() string {
-	parts := make([]string, len(a.terms))
-	for i, t := range a.terms {
-		parts[i] = t.LaTeX()
+	if len(a.terms) == 0 {
+		return "0"
 	}
-	return strings.Join(parts, " + ")
+	var b strings.Builder
+	for i, t := range a.terms {
+		s := t.LaTeX()
+		if i == 0 {
+			b.WriteString(s)
+			continue
+		}
+		if strings.HasPrefix(s, "-") {
+			b.WriteString(" - ")
+			b.WriteString(strings.TrimPrefix(s, "-"))
+			continue
+		}
+		b.WriteString(" + ")
+		b.WriteString(s)
+	}
+	return b.String()
 }
 
 func (a *Add) Sub(varName string, value Expr) Expr {
@@ -506,10 +531,18 @@ func (p *Pow) Simplify() Expr {
 			}
 		}
 	}
+
+	// (a^b)^c -> a^(b*c) is not generally safe for non-integer exponents.
+	// Restrict to integer exponents to avoid changing semantics (branch issues).
 	if inner, ok := base.(*Pow); ok {
-		newExp := MulOf(inner.exp, exp).Simplify()
-		return PowOf(inner.base, newExp)
+		en1, ok1 := inner.exp.(*Num)
+		en2, ok2 := exp.(*Num)
+		if ok1 && ok2 && en1.IsInteger() && en2.IsInteger() {
+			newExp := MulOf(inner.exp, exp).Simplify()
+			return PowOf(inner.base, newExp)
+		}
 	}
+
 	return &Pow{base: base, exp: exp}
 }
 
@@ -2488,7 +2521,15 @@ type ToolResponse struct {
 	Error  string      `json:"error,omitempty"`
 }
 
-func HandleToolCall(req ToolRequest) ToolResponse {
+func HandleToolCall(req ToolRequest) (resp ToolResponse) {
+	// IMPORTANT: HandleToolCall may be invoked in server contexts with user-controlled
+	// input. Convert panics into a normal error response to avoid process crashes.
+	defer func() {
+		if r := recover(); r != nil {
+			resp = ToolResponse{Error: fmt.Sprint(r)}
+		}
+	}()
+
 	getExpr := func(key string) (Expr, error) {
 		v, ok := req.Params[key]
 		if !ok {
@@ -2551,6 +2592,28 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 			result[i] = e
 		}
 		return result, nil
+	}
+	getInt := func(key string) (int, error) {
+		v, ok := req.Params[key]
+		if !ok {
+			return 0, fmt.Errorf("missing param: %s", key)
+		}
+		switch n := v.(type) {
+		case float64:
+			if math.IsNaN(n) || math.IsInf(n, 0) {
+				return 0, fmt.Errorf("param %s must be a finite integer", key)
+			}
+			if n != math.Trunc(n) {
+				return 0, fmt.Errorf("param %s must be an integer", key)
+			}
+			return int(n), nil
+		case int:
+			return n, nil
+		case int64:
+			return int(n), nil
+		default:
+			return 0, fmt.Errorf("param %s must be an integer", key)
+		}
 	}
 	getMatrix := func(key string) (*Matrix, error) {
 		v, ok := req.Params[key]
@@ -2682,8 +2745,11 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
 		}
-		nF, _ := req.Params["n"].(float64)
-		return respond(DiffN(e, v, int(nF)))
+		n, err := getInt("n")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		return respond(DiffN(e, v, n))
 
 	case "pdiff":
 		e, err := getExpr("expr")
@@ -2903,22 +2969,52 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		}
 
 	case "solve_quadratic":
-		a, _ := getExpr("a")
-		b, _ := getExpr("b")
-		c, _ := getExpr("c")
+		a, err := getExpr("a")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b, err := getExpr("b")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c, err := getExpr("c")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		return solvesTool(SolveQuadratic(a, b, c))
 
 	case "solve_quadratic_exact":
-		a, _ := getExpr("a")
-		b, _ := getExpr("b")
-		c, _ := getExpr("c")
+		a, err := getExpr("a")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b, err := getExpr("b")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c, err := getExpr("c")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		return solvesTool(SolveQuadraticExact(a, b, c))
 
 	case "solve_cubic":
-		a, _ := getExpr("a")
-		b, _ := getExpr("b")
-		c, _ := getExpr("c")
-		d, _ := getExpr("d")
+		a, err := getExpr("a")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b, err := getExpr("b")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c, err := getExpr("c")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		d, err := getExpr("d")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		return solvesTool(SolveCubic(a, b, c, d))
 
 	case "solve_polynomial_newton":
@@ -2936,12 +3032,30 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		return solvesTool(SolvePolynomialNewton(e, v, rangeF, tolF, int(iterF)))
 
 	case "solve_system_2x2":
-		a1, _ := getExpr("a1")
-		b1, _ := getExpr("b1")
-		c1, _ := getExpr("c1")
-		a2, _ := getExpr("a2")
-		b2, _ := getExpr("b2")
-		c2, _ := getExpr("c2")
+		a1, err := getExpr("a1")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b1, err := getExpr("b1")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c1, err := getExpr("c1")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		a2, err := getExpr("a2")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b2, err := getExpr("b2")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c2, err := getExpr("c2")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		x, y, err := SolveLinearSystem2x2(a1, b1, c1, a2, b2, c2)
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
