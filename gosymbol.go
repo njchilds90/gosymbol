@@ -39,12 +39,6 @@ type Expr interface {
 
 type Num struct{ val *big.Rat }
 
-var (
-	ratZero   = big.NewRat(0, 1)
-	ratOne    = big.NewRat(1, 1)
-	ratNegOne = big.NewRat(-1, 1)
-)
-
 func N(n int64) *Num { return &Num{val: new(big.Rat).SetInt64(n)} }
 func F(p, q int64) *Num {
 	if q == 0 {
@@ -52,20 +46,7 @@ func F(p, q int64) *Num {
 	}
 	return &Num{val: new(big.Rat).SetFrac(big.NewInt(p), big.NewInt(q))}
 }
-
-// NFloat constructs a rational approximation of the given float.
-//
-// Note: this is inherently inexact, and NaN/Inf are rejected.
-func NFloat(f float64) *Num {
-	if math.IsNaN(f) || math.IsInf(f, 0) {
-		panic("gosymbol: NFloat called with NaN/Inf")
-	}
-	r, ok := new(big.Rat).SetFloat64(f)
-	if !ok {
-		panic("gosymbol: cannot represent float64 as rational")
-	}
-	return &Num{val: r}
-}
+func NFloat(f float64) *Num { return &Num{val: new(big.Rat).SetFloat64(f)} }
 
 func (n *Num) Simplify() Expr        { return n }
 func (n *Num) Sub(string, Expr) Expr { return n }
@@ -75,8 +56,8 @@ func (n *Num) Equal(other Expr) bool { o, ok := other.(*Num); return ok && n.val
 func (n *Num) exprType() string      { return "num" }
 func (n *Num) Float64() float64      { f, _ := n.val.Float64(); return f }
 func (n *Num) IsZero() bool          { return n.val.Sign() == 0 }
-func (n *Num) IsOne() bool           { return n.val.Cmp(ratOne) == 0 }
-func (n *Num) IsNegOne() bool        { return n.val.Cmp(ratNegOne) == 0 }
+func (n *Num) IsOne() bool           { return n.val.Cmp(new(big.Rat).SetInt64(1)) == 0 }
+func (n *Num) IsNegOne() bool        { return n.val.Cmp(new(big.Rat).SetInt64(-1)) == 0 }
 func (n *Num) IsInteger() bool       { return n.val.IsInt() }
 func (n *Num) Rat() *big.Rat         { return new(big.Rat).Set(n.val) }
 func (n *Num) IsPositive() bool      { return n.val.Sign() > 0 }
@@ -138,17 +119,16 @@ func gcdInt(a, b int64) int64 {
 
 type Sym struct{ name string }
 
-func S(name string) *Sym          { return &Sym{name: name} }
-func (s *Sym) Simplify() Expr     { return s }
-func (s *Sym) String() string     { return s.name }
-func (s *Sym) LaTeX() string      { return s.name }
-func (s *Sym) Eval() (*Num, bool) { return nil, false }
-func (s *Sym) Equal(other Expr) bool {
-	o, ok := other.(*Sym)
-	return ok && s.name == o.name
+func S(name string) *Sym      { return &Sym{name: name} }
+func (s *Sym) Simplify() Expr { return s }
+func (s *Sym) String() string { return s.name }
+func (s *Sym) LaTeX() string  { return s.name }
+func (s *Sym) Eval() (*Num, bool) {
+	return nil, false
 }
-func (s *Sym) exprType() string { return "sym" }
-func (s *Sym) Name() string     { return s.name }
+func (s *Sym) Equal(other Expr) bool { o, ok := other.(*Sym); return ok && s.name == o.name }
+func (s *Sym) exprType() string      { return "sym" }
+func (s *Sym) Name() string          { return s.name }
 func (s *Sym) toJSON() map[string]interface{} {
 	return map[string]interface{}{"type": "sym", "name": s.name}
 }
@@ -174,7 +154,6 @@ type Add struct{ terms []Expr }
 func AddOf(terms ...Expr) Expr { return (&Add{terms: terms}).Simplify() }
 
 func (a *Add) Simplify() Expr {
-	// Flatten and simplify children first.
 	flat := make([]Expr, 0, len(a.terms))
 	for _, t := range a.terms {
 		s := t.Simplify()
@@ -184,61 +163,41 @@ func (a *Add) Simplify() Expr {
 			flat = append(flat, s)
 		}
 	}
-
-	// Combine numeric constants, and combine general like terms:
-	//   a*r + b*r => (a+b)*r
-	// where extractCoefficient returns (a, r).
 	numAccum := N(0)
-	coeffByRest := map[string]*Num{}
-	restByKey := map[string]Expr{}
-
+	symCoeffs := map[string]*Num{}
+	symOrder := []string{}
+	others := []Expr{}
 	for _, t := range flat {
-		// Fast path: purely numeric
-		if n, ok := t.(*Num); ok {
-			numAccum = numAdd(numAccum, n)
-			continue
+		switch v := t.(type) {
+		case *Num:
+			numAccum = numAdd(numAccum, v)
+		case *Sym:
+			if _, seen := symCoeffs[v.name]; !seen {
+				symOrder = append(symOrder, v.name)
+				symCoeffs[v.name] = N(0)
+			}
+			symCoeffs[v.name] = numAdd(symCoeffs[v.name], N(1))
+		default:
+			others = append(others, t)
 		}
-
-		c, r := extractCoefficient(t)
-		// If rest is numeric, fold it into numeric accumulator.
-		if rn, ok := r.(*Num); ok {
-			numAccum = numAdd(numAccum, numMul(c, rn))
-			continue
-		}
-
-		k := r.String() // deterministic enough given existing design; preserves repo constraints
-		if _, seen := coeffByRest[k]; !seen {
-			coeffByRest[k] = N(0)
-			restByKey[k] = r
-		}
-		coeffByRest[k] = numAdd(coeffByRest[k], c)
 	}
-
-	// Emit in deterministic order.
-	keys := make([]string, 0, len(coeffByRest))
-	for k := range coeffByRest {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	result := make([]Expr, 0, len(keys)+1)
-	for _, k := range keys {
-		coeff := coeffByRest[k]
+	result := []Expr{}
+	sort.Strings(symOrder)
+	for _, name := range symOrder {
+		coeff := symCoeffs[name]
 		if coeff.IsZero() {
 			continue
 		}
-		rest := restByKey[k]
 		if coeff.IsOne() {
-			result = append(result, rest)
-			continue
+			result = append(result, S(name))
+		} else {
+			result = append(result, MulOf(coeff, S(name)))
 		}
-		result = append(result, MulOf(coeff, rest))
 	}
-
+	result = append(result, others...)
 	if !numAccum.IsZero() {
 		result = append(result, numAccum)
 	}
-
 	if len(result) == 0 {
 		return N(0)
 	}
@@ -252,44 +211,19 @@ func (a *Add) String() string {
 	if len(a.terms) == 0 {
 		return "0"
 	}
-	var b strings.Builder
+	parts := make([]string, len(a.terms))
 	for i, t := range a.terms {
-		s := t.String()
-		if i == 0 {
-			b.WriteString(s)
-			continue
-		}
-		if strings.HasPrefix(s, "-") {
-			b.WriteString(" - ")
-			b.WriteString(strings.TrimPrefix(s, "-"))
-			continue
-		}
-		b.WriteString(" + ")
-		b.WriteString(s)
+		parts[i] = t.String()
 	}
-	return b.String()
+	return strings.Join(parts, " + ")
 }
 
 func (a *Add) LaTeX() string {
-	if len(a.terms) == 0 {
-		return "0"
-	}
-	var b strings.Builder
+	parts := make([]string, len(a.terms))
 	for i, t := range a.terms {
-		s := t.LaTeX()
-		if i == 0 {
-			b.WriteString(s)
-			continue
-		}
-		if strings.HasPrefix(s, "-") {
-			b.WriteString(" - ")
-			b.WriteString(strings.TrimPrefix(s, "-"))
-			continue
-		}
-		b.WriteString(" + ")
-		b.WriteString(s)
+		parts[i] = t.LaTeX()
 	}
-	return b.String()
+	return strings.Join(parts, " + ")
 }
 
 func (a *Add) Sub(varName string, value Expr) Expr {
@@ -376,7 +310,23 @@ func (m *Mul) Simplify() Expr {
 	if len(others) == 0 {
 		return coeff
 	}
-	sort.Slice(others, func(i, j int) bool { return others[i].String() < others[j].String() })
+
+	// Precompute sort keys to avoid repeated String() calls in comparator.
+	type keyed struct {
+		e   Expr
+		key string
+	}
+	ks := make([]keyed, len(others))
+	for i, e := range others {
+		ks[i] = keyed{e: e, key: e.String()}
+	}
+	sort.Slice(ks, func(i, j int) bool { return ks[i].key < ks[j].key })
+	sortedOthers := make([]Expr, len(ks))
+	for i := range ks {
+		sortedOthers[i] = ks[i].e
+	}
+	others = sortedOthers
+
 	if coeff.IsOne() {
 		if len(others) == 1 {
 			return others[0]
@@ -492,22 +442,24 @@ func (p *Pow) Simplify() Expr {
 	base := p.base.Simplify()
 	exp := p.exp.Simplify()
 
-	// Explicitly preserve 0^0 as indeterminate/unsimplified.
-	if bn, ok := base.(*Num); ok && bn.IsZero() {
-		if en, ok2 := exp.(*Num); ok2 && en.IsZero() {
-			return &Pow{base: base, exp: exp}
-		}
-	}
-
 	if en, ok := exp.(*Num); ok && en.IsZero() {
 		return N(1)
 	}
 	if en, ok := exp.(*Num); ok && en.IsOne() {
 		return base
 	}
+
+	// Handle 0^exp carefully.
 	if bn, ok := base.(*Num); ok && bn.IsZero() {
+		if en, ok2 := exp.(*Num); ok2 {
+			// 0^0 is indeterminate; 0^negative is division by zero.
+			if en.IsZero() || en.IsNegative() {
+				return &Pow{base: base, exp: exp}
+			}
+		}
 		return N(0)
 	}
+
 	if bn, ok := base.(*Num); ok && bn.IsOne() {
 		return N(1)
 	}
@@ -527,22 +479,15 @@ func (p *Pow) Simplify() Expr {
 				for i := int64(0); i < posE; i++ {
 					result = numMul(result, bn)
 				}
+				// Will panic if result == 0, but base==0 was handled above.
 				return numRecip(result)
 			}
 		}
 	}
-
-	// (a^b)^c -> a^(b*c) is not generally safe for non-integer exponents.
-	// Restrict to integer exponents to avoid changing semantics (branch issues).
 	if inner, ok := base.(*Pow); ok {
-		en1, ok1 := inner.exp.(*Num)
-		en2, ok2 := exp.(*Num)
-		if ok1 && ok2 && en1.IsInteger() && en2.IsInteger() {
-			newExp := MulOf(inner.exp, exp).Simplify()
-			return PowOf(inner.base, newExp)
-		}
+		newExp := MulOf(inner.exp, exp).Simplify()
+		return PowOf(inner.base, newExp)
 	}
-
 	return &Pow{base: base, exp: exp}
 }
 
@@ -595,11 +540,11 @@ func (p *Pow) Eval() (*Num, bool) {
 	if ok1 && ok2 {
 		bf, _ := b.val.Float64()
 		ef, _ := e.val.Float64()
-		v := math.Pow(bf, ef)
-		if math.IsNaN(v) || math.IsInf(v, 0) {
+		pf := math.Pow(bf, ef)
+		if math.IsNaN(pf) || math.IsInf(pf, 0) {
 			return nil, false
 		}
-		return NFloat(v), true
+		return NFloat(pf), true
 	}
 	return nil, false
 }
@@ -806,9 +751,6 @@ func (f *Func) Eval() (*Num, bool) {
 	case "exp":
 		return NFloat(math.Exp(v)), true
 	case "ln":
-		if v <= 0 {
-			return nil, false
-		}
 		return NFloat(math.Log(v)), true
 	case "abs":
 		return NFloat(math.Abs(v)), true
@@ -924,10 +866,22 @@ func MatrixFromSlice(rows, cols int, entries []Expr) *Matrix {
 	return m
 }
 
-func (m *Matrix) Get(row, col int) Expr      { return m.data[row][col] }
-func (m *Matrix) Set(row, col int, val Expr) { m.data[row][col] = val }
-func (m *Matrix) Rows() int                  { return m.rows }
-func (m *Matrix) Cols() int                  { return m.cols }
+func (m *Matrix) checkBounds(row, col int) {
+	if row < 0 || row >= m.rows || col < 0 || col >= m.cols {
+		panic(fmt.Sprintf("gosymbol: matrix index out of range [%d,%d] for %dx%d", row, col, m.rows, m.cols))
+	}
+}
+
+func (m *Matrix) Get(row, col int) Expr {
+	m.checkBounds(row, col)
+	return m.data[row][col]
+}
+func (m *Matrix) Set(row, col int, val Expr) {
+	m.checkBounds(row, col)
+	m.data[row][col] = val
+}
+func (m *Matrix) Rows() int { return m.rows }
+func (m *Matrix) Cols() int { return m.cols }
 
 func (m *Matrix) String() string {
 	var sb strings.Builder
@@ -2344,161 +2298,169 @@ func ToJSON(e Expr) (string, error) {
 }
 
 func FromJSON(data map[string]interface{}) (Expr, error) {
+	if data == nil {
+		return nil, fmt.Errorf("expression must be an object")
+	}
 	typAny, ok := data["type"]
 	if !ok {
 		return nil, fmt.Errorf("missing 'type' field")
 	}
 	typ, ok := typAny.(string)
 	if !ok || typ == "" {
-		return nil, fmt.Errorf("invalid 'type' field")
+		return nil, fmt.Errorf("field 'type' must be a non-empty string")
 	}
 
-	reqMap := func(key string) (map[string]interface{}, error) {
-		v, ok := data[key]
+	subObj := func(field string) (map[string]interface{}, error) {
+		v, ok := data[field]
 		if !ok {
-			return nil, fmt.Errorf("%s missing '%s'", typ, key)
+			return nil, fmt.Errorf("%s: missing %q", typ, field)
 		}
 		m, ok := v.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("%s field '%s' must be object", typ, key)
+			return nil, fmt.Errorf("%s: %q must be an object", typ, field)
 		}
 		return m, nil
 	}
-	reqString := func(key string) (string, error) {
-		v, ok := data[key]
+
+	subObjArray := func(field string) ([]map[string]interface{}, error) {
+		v, ok := data[field]
 		if !ok {
-			return "", fmt.Errorf("%s missing '%s'", typ, key)
+			return nil, fmt.Errorf("%s: missing %q", typ, field)
+		}
+		raw, ok := v.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("%s: %q must be an array", typ, field)
+		}
+		out := make([]map[string]interface{}, len(raw))
+		for i, it := range raw {
+			m, ok := it.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("%s: %q[%d] must be an object", typ, field, i)
+			}
+			out[i] = m
+		}
+		return out, nil
+	}
+
+	subString := func(field string) (string, error) {
+		v, ok := data[field]
+		if !ok {
+			return "", fmt.Errorf("%s: missing %q", typ, field)
 		}
 		s, ok := v.(string)
-		if !ok {
-			return "", fmt.Errorf("%s field '%s' must be string", typ, key)
-		}
-		if s == "" {
-			return "", fmt.Errorf("%s field '%s' must be non-empty", typ, key)
+		if !ok || s == "" {
+			return "", fmt.Errorf("%s: %q must be a non-empty string", typ, field)
 		}
 		return s, nil
+	}
+
+	subNumberAsInt := func(field string) (int, error) {
+		v, ok := data[field]
+		if !ok {
+			return 0, fmt.Errorf("%s: missing %q", typ, field)
+		}
+		n, ok := v.(float64)
+		if !ok {
+			return 0, fmt.Errorf("%s: %q must be a number", typ, field)
+		}
+		return int(n), nil
 	}
 
 	switch typ {
 	case "num":
 		valAny, ok := data["value"]
 		if !ok {
-			return nil, fmt.Errorf("num missing 'value'")
+			return nil, fmt.Errorf("num: missing 'value'")
 		}
 		val, ok := valAny.(string)
 		if !ok || val == "" {
-			return nil, fmt.Errorf("num field 'value' must be non-empty string")
+			return nil, fmt.Errorf("num: 'value' must be a non-empty string")
 		}
 		r := new(big.Rat)
 		if _, ok := r.SetString(val); !ok {
 			return nil, fmt.Errorf("invalid num value: %s", val)
 		}
 		return &Num{val: r}, nil
+
 	case "sym":
-		name, err := reqString("name")
+		name, err := subString("name")
 		if err != nil {
 			return nil, err
 		}
 		return S(name), nil
+
 	case "add":
-		raw, ok := data["terms"]
-		if !ok {
-			return nil, fmt.Errorf("add missing 'terms'")
+		objs, err := subObjArray("terms")
+		if err != nil {
+			return nil, err
 		}
-		rawTerms, ok := raw.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("add field 'terms' must be array")
-		}
-		terms := make([]Expr, len(rawTerms))
-		for i, t := range rawTerms {
-			m, ok := t.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("add terms[%d] must be object", i)
-			}
-			e, err := FromJSON(m)
+		terms := make([]Expr, len(objs))
+		for i, o := range objs {
+			e, err := FromJSON(o)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("add: terms[%d]: %w", i, err)
 			}
 			terms[i] = e
 		}
 		return AddOf(terms...), nil
+
 	case "mul":
-		raw, ok := data["factors"]
-		if !ok {
-			return nil, fmt.Errorf("mul missing 'factors'")
+		objs, err := subObjArray("factors")
+		if err != nil {
+			return nil, err
 		}
-		rawFactors, ok := raw.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("mul field 'factors' must be array")
-		}
-		factors := make([]Expr, len(rawFactors))
-		for i, f := range rawFactors {
-			m, ok := f.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("mul factors[%d] must be object", i)
-			}
-			e, err := FromJSON(m)
+		factors := make([]Expr, len(objs))
+		for i, o := range objs {
+			e, err := FromJSON(o)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("mul: factors[%d]: %w", i, err)
 			}
 			factors[i] = e
 		}
 		return MulOf(factors...), nil
+
 	case "pow":
-		baseM, err := reqMap("base")
+		baseM, err := subObj("base")
 		if err != nil {
 			return nil, err
 		}
-		expM, err := reqMap("exp")
+		expM, err := subObj("exp")
 		if err != nil {
 			return nil, err
 		}
 		base, err := FromJSON(baseM)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pow: base: %w", err)
 		}
 		exp, err := FromJSON(expM)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pow: exp: %w", err)
 		}
 		return PowOf(base, exp), nil
+
 	case "func":
-		name, err := reqString("name")
+		name, err := subString("name")
 		if err != nil {
 			return nil, err
 		}
-		argM, err := reqMap("arg")
+		argM, err := subObj("arg")
 		if err != nil {
 			return nil, err
 		}
 		arg, err := FromJSON(argM)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("func: arg: %w", err)
 		}
 		return funcOf(name, arg).Simplify(), nil
+
 	case "bigo":
-		v, err := reqString("var")
+		v, err := subString("var")
 		if err != nil {
 			return nil, err
 		}
-		orderAny, ok := data["order"]
-		if !ok {
-			return nil, fmt.Errorf("bigo missing 'order'")
-		}
-		var order int
-		switch o := orderAny.(type) {
-		case float64:
-			if math.IsNaN(o) || math.IsInf(o, 0) {
-				return nil, fmt.Errorf("bigo field 'order' invalid")
-			}
-			order = int(o)
-		case int:
-			order = o
-		default:
-			return nil, fmt.Errorf("bigo field 'order' must be number")
-		}
-		if order < 0 {
-			return nil, fmt.Errorf("bigo field 'order' must be >= 0")
+		order, err := subNumberAsInt("order")
+		if err != nil {
+			return nil, err
 		}
 		return OTerm(v, order), nil
 	}
@@ -2521,24 +2483,17 @@ type ToolResponse struct {
 	Error  string      `json:"error,omitempty"`
 }
 
-func HandleToolCall(req ToolRequest) (resp ToolResponse) {
-	// IMPORTANT: HandleToolCall may be invoked in server contexts with user-controlled
-	// input. Convert panics into a normal error response to avoid process crashes.
-	defer func() {
-		if r := recover(); r != nil {
-			resp = ToolResponse{Error: fmt.Sprint(r)}
-		}
-	}()
-
+func HandleToolCall(req ToolRequest) ToolResponse {
 	getExpr := func(key string) (Expr, error) {
 		v, ok := req.Params[key]
 		if !ok {
 			return nil, fmt.Errorf("missing param: %s", key)
 		}
-		if val, ok := v.(map[string]interface{}); ok {
-			return FromJSON(val)
+		val, ok := v.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid type for param %s", key)
 		}
-		return nil, fmt.Errorf("invalid type for param %s", key)
+		return FromJSON(val)
 	}
 	getString := func(key string) (string, error) {
 		v, ok := req.Params[key]
@@ -2593,28 +2548,6 @@ func HandleToolCall(req ToolRequest) (resp ToolResponse) {
 		}
 		return result, nil
 	}
-	getInt := func(key string) (int, error) {
-		v, ok := req.Params[key]
-		if !ok {
-			return 0, fmt.Errorf("missing param: %s", key)
-		}
-		switch n := v.(type) {
-		case float64:
-			if math.IsNaN(n) || math.IsInf(n, 0) {
-				return 0, fmt.Errorf("param %s must be a finite integer", key)
-			}
-			if n != math.Trunc(n) {
-				return 0, fmt.Errorf("param %s must be an integer", key)
-			}
-			return int(n), nil
-		case int:
-			return n, nil
-		case int64:
-			return int(n), nil
-		default:
-			return 0, fmt.Errorf("param %s must be an integer", key)
-		}
-	}
 	getMatrix := func(key string) (*Matrix, error) {
 		v, ok := req.Params[key]
 		if !ok {
@@ -2624,21 +2557,27 @@ func HandleToolCall(req ToolRequest) (resp ToolResponse) {
 		if !ok {
 			return nil, fmt.Errorf("param %s must be matrix object", key)
 		}
+
 		rowsF, ok := raw["rows"].(float64)
 		if !ok {
-			return nil, fmt.Errorf("matrix field 'rows' must be number")
+			return nil, fmt.Errorf("matrix.rows must be a number")
 		}
 		colsF, ok := raw["cols"].(float64)
 		if !ok {
-			return nil, fmt.Errorf("matrix field 'cols' must be number")
+			return nil, fmt.Errorf("matrix.cols must be a number")
 		}
 		rows, cols := int(rowsF), int(colsF)
 		if rows <= 0 || cols <= 0 {
-			return nil, fmt.Errorf("matrix rows/cols must be > 0")
+			return nil, fmt.Errorf("matrix dimensions must be positive")
 		}
-		entriesRaw, ok := raw["entries"].([]interface{})
+
+		entriesRawAny, ok := raw["entries"]
 		if !ok {
-			return nil, fmt.Errorf("matrix field 'entries' must be array")
+			return nil, fmt.Errorf("matrix.entries missing")
+		}
+		entriesRaw, ok := entriesRawAny.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("matrix.entries must be an array")
 		}
 		if len(entriesRaw) != rows*cols {
 			return nil, fmt.Errorf("matrix entries count mismatch")
@@ -2658,10 +2597,7 @@ func HandleToolCall(req ToolRequest) (resp ToolResponse) {
 		return MatrixFromSlice(rows, cols, entries), nil
 	}
 	respond := func(e Expr) ToolResponse {
-		j, _ := ToJSON(e)
-		var m map[string]interface{}
-		_ = json.Unmarshal([]byte(j), &m)
-		return ToolResponse{Result: m, LaTeX: LaTeX(e), String: String(e)}
+		return ToolResponse{Result: e.toJSON(), LaTeX: LaTeX(e), String: String(e)}
 	}
 	respondMatrix := func(mat *Matrix) ToolResponse {
 		return ToolResponse{
@@ -2745,9 +2681,17 @@ func HandleToolCall(req ToolRequest) (resp ToolResponse) {
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
 		}
-		n, err := getInt("n")
-		if err != nil {
-			return ToolResponse{Error: err.Error()}
+		nAny, ok := req.Params["n"]
+		if !ok {
+			return ToolResponse{Error: "missing param: n"}
+		}
+		nF, ok := nAny.(float64)
+		if !ok {
+			return ToolResponse{Error: "param n must be a number"}
+		}
+		n := int(nF)
+		if n < 0 {
+			return ToolResponse{Error: "param n must be >= 0"}
 		}
 		return respond(DiffN(e, v, n))
 
@@ -2808,8 +2752,14 @@ func HandleToolCall(req ToolRequest) (resp ToolResponse) {
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
 		}
-		aF, _ := req.Params["a"].(float64)
-		bF, _ := req.Params["b"].(float64)
+		aF, ok := req.Params["a"].(float64)
+		if !ok {
+			return ToolResponse{Error: "param a must be a number"}
+		}
+		bF, ok := req.Params["b"].(float64)
+		if !ok {
+			return ToolResponse{Error: "param b must be a number"}
+		}
 		result := DefiniteIntegrate(e, v, aF, bF)
 		return ToolResponse{Result: result, String: fmt.Sprintf("%.10g", result)}
 
@@ -2957,8 +2907,7 @@ func HandleToolCall(req ToolRequest) (resp ToolResponse) {
 		latexSols := make([]string, len(res.Solutions))
 		strSols := make([]string, len(res.Solutions))
 		for i, s := range res.Solutions {
-			j, _ := ToJSON(s)
-			_ = json.Unmarshal([]byte(j), &sols[i])
+			sols[i] = s.toJSON()
 			latexSols[i] = LaTeX(s)
 			strSols[i] = String(s)
 		}
@@ -3297,6 +3246,3 @@ func ts(name, description string, required []string, props map[string]string) ma
 		},
 	}
 }
-
-// Ensure ratZero is referenced (avoid unused in case future edits remove usage).
-var _ = ratZero
