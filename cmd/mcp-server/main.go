@@ -83,7 +83,17 @@ func main() {
 	log.Printf("  POST /tool   — execute a tool call")
 	log.Printf("  GET  /schema — tool schema for agent registration")
 	log.Printf("  GET  /health — health check")
-	if err := http.ListenAndServe(addr, mux); err != nil {
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
