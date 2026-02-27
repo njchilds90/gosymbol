@@ -1,4 +1,4 @@
-// Package gosympy provides a deterministic symbolic math kernel for Go.
+// Package gosymbol provides a deterministic symbolic math kernel for Go.
 //
 // Design goals:
 //   - Single file, zero external dependencies
@@ -42,7 +42,7 @@ type Num struct{ val *big.Rat }
 func N(n int64) *Num { return &Num{val: new(big.Rat).SetInt64(n)} }
 func F(p, q int64) *Num {
 	if q == 0 {
-		panic("gosympy: denominator is zero")
+		panic("gosymbol: denominator is zero")
 	}
 	return &Num{val: new(big.Rat).SetFrac(big.NewInt(p), big.NewInt(q))}
 }
@@ -93,7 +93,7 @@ func numMul(a, b *Num) *Num { return &Num{val: new(big.Rat).Mul(a.val, b.val)} }
 func numNeg(a *Num) *Num    { return &Num{val: new(big.Rat).Neg(a.val)} }
 func numRecip(a *Num) *Num {
 	if a.IsZero() {
-		panic("gosympy: division by zero")
+		panic("gosymbol: division by zero")
 	}
 	return &Num{val: new(big.Rat).Inv(a.val)}
 }
@@ -119,14 +119,16 @@ func gcdInt(a, b int64) int64 {
 
 type Sym struct{ name string }
 
-func S(name string) *Sym        { return &Sym{name: name} }
-func (s *Sym) Simplify() Expr   { return s }
-func (s *Sym) String() string   { return s.name }
-func (s *Sym) LaTeX() string    { return s.name }
-func (s *Sym) Eval() (*Num, bool) { return nil, false }
+func S(name string) *Sym      { return &Sym{name: name} }
+func (s *Sym) Simplify() Expr { return s }
+func (s *Sym) String() string { return s.name }
+func (s *Sym) LaTeX() string  { return s.name }
+func (s *Sym) Eval() (*Num, bool) {
+	return nil, false
+}
 func (s *Sym) Equal(other Expr) bool { o, ok := other.(*Sym); return ok && s.name == o.name }
-func (s *Sym) exprType() string { return "sym" }
-func (s *Sym) Name() string     { return s.name }
+func (s *Sym) exprType() string      { return "sym" }
+func (s *Sym) Name() string          { return s.name }
 func (s *Sym) toJSON() map[string]interface{} {
 	return map[string]interface{}{"type": "sym", "name": s.name}
 }
@@ -308,7 +310,23 @@ func (m *Mul) Simplify() Expr {
 	if len(others) == 0 {
 		return coeff
 	}
-	sort.Slice(others, func(i, j int) bool { return others[i].String() < others[j].String() })
+
+	// Precompute sort keys to avoid repeated String() calls in comparator.
+	type keyed struct {
+		e   Expr
+		key string
+	}
+	ks := make([]keyed, len(others))
+	for i, e := range others {
+		ks[i] = keyed{e: e, key: e.String()}
+	}
+	sort.Slice(ks, func(i, j int) bool { return ks[i].key < ks[j].key })
+	sortedOthers := make([]Expr, len(ks))
+	for i := range ks {
+		sortedOthers[i] = ks[i].e
+	}
+	others = sortedOthers
+
 	if coeff.IsOne() {
 		if len(others) == 1 {
 			return others[0]
@@ -423,15 +441,25 @@ func PowOf(base, exp Expr) Expr { return (&Pow{base: base, exp: exp}).Simplify()
 func (p *Pow) Simplify() Expr {
 	base := p.base.Simplify()
 	exp := p.exp.Simplify()
+
 	if en, ok := exp.(*Num); ok && en.IsZero() {
 		return N(1)
 	}
 	if en, ok := exp.(*Num); ok && en.IsOne() {
 		return base
 	}
+
+	// Handle 0^exp carefully.
 	if bn, ok := base.(*Num); ok && bn.IsZero() {
+		if en, ok2 := exp.(*Num); ok2 {
+			// 0^0 is indeterminate; 0^negative is division by zero.
+			if en.IsZero() || en.IsNegative() {
+				return &Pow{base: base, exp: exp}
+			}
+		}
 		return N(0)
 	}
+
 	if bn, ok := base.(*Num); ok && bn.IsOne() {
 		return N(1)
 	}
@@ -451,6 +479,7 @@ func (p *Pow) Simplify() Expr {
 				for i := int64(0); i < posE; i++ {
 					result = numMul(result, bn)
 				}
+				// Will panic if result == 0, but base==0 was handled above.
 				return numRecip(result)
 			}
 		}
@@ -511,7 +540,11 @@ func (p *Pow) Eval() (*Num, bool) {
 	if ok1 && ok2 {
 		bf, _ := b.val.Float64()
 		ef, _ := e.val.Float64()
-		return NFloat(math.Pow(bf, ef)), true
+		pf := math.Pow(bf, ef)
+		if math.IsNaN(pf) || math.IsInf(pf, 0) {
+			return nil, false
+		}
+		return NFloat(pf), true
 	}
 	return nil, false
 }
@@ -539,22 +572,22 @@ type Func struct {
 
 func funcOf(name string, arg Expr) *Func { return &Func{name: name, arg: arg} }
 
-func SinOf(arg Expr) Expr  { return funcOf("sin", arg).Simplify() }
-func CosOf(arg Expr) Expr  { return funcOf("cos", arg).Simplify() }
-func TanOf(arg Expr) Expr  { return funcOf("tan", arg).Simplify() }
-func ExpOf(arg Expr) Expr  { return funcOf("exp", arg).Simplify() }
-func LnOf(arg Expr) Expr   { return funcOf("ln", arg).Simplify() }
-func SqrtOf(arg Expr) Expr { return PowOf(arg, F(1, 2)) }
-func AbsOf(arg Expr) Expr  { return funcOf("abs", arg).Simplify() }
-func AsinOf(arg Expr) Expr { return funcOf("asin", arg).Simplify() }
-func AcosOf(arg Expr) Expr { return funcOf("acos", arg).Simplify() }
-func AtanOf(arg Expr) Expr { return funcOf("atan", arg).Simplify() }
-func SinhOf(arg Expr) Expr { return funcOf("sinh", arg).Simplify() }
-func CoshOf(arg Expr) Expr { return funcOf("cosh", arg).Simplify() }
-func TanhOf(arg Expr) Expr { return funcOf("tanh", arg).Simplify() }
+func SinOf(arg Expr) Expr   { return funcOf("sin", arg).Simplify() }
+func CosOf(arg Expr) Expr   { return funcOf("cos", arg).Simplify() }
+func TanOf(arg Expr) Expr   { return funcOf("tan", arg).Simplify() }
+func ExpOf(arg Expr) Expr   { return funcOf("exp", arg).Simplify() }
+func LnOf(arg Expr) Expr    { return funcOf("ln", arg).Simplify() }
+func SqrtOf(arg Expr) Expr  { return PowOf(arg, F(1, 2)) }
+func AbsOf(arg Expr) Expr   { return funcOf("abs", arg).Simplify() }
+func AsinOf(arg Expr) Expr  { return funcOf("asin", arg).Simplify() }
+func AcosOf(arg Expr) Expr  { return funcOf("acos", arg).Simplify() }
+func AtanOf(arg Expr) Expr  { return funcOf("atan", arg).Simplify() }
+func SinhOf(arg Expr) Expr  { return funcOf("sinh", arg).Simplify() }
+func CoshOf(arg Expr) Expr  { return funcOf("cosh", arg).Simplify() }
+func TanhOf(arg Expr) Expr  { return funcOf("tanh", arg).Simplify() }
 func FloorOf(arg Expr) Expr { return funcOf("floor", arg).Simplify() }
-func CeilOf(arg Expr) Expr { return funcOf("ceil", arg).Simplify() }
-func SignOf(arg Expr) Expr { return funcOf("sign", arg).Simplify() }
+func CeilOf(arg Expr) Expr  { return funcOf("ceil", arg).Simplify() }
+func SignOf(arg Expr) Expr  { return funcOf("sign", arg).Simplify() }
 
 func (f *Func) Simplify() Expr {
 	arg := f.arg.Simplify()
@@ -765,8 +798,10 @@ func isNumEqual(e Expr, v int64) bool {
 type Equation struct{ LHS, RHS Expr }
 
 func Eq(lhs, rhs Expr) *Equation { return &Equation{LHS: lhs, RHS: rhs} }
-func (e *Equation) String() string { return e.LHS.String() + " = " + e.RHS.String() }
-func (e *Equation) LaTeX() string  { return e.LHS.LaTeX() + " = " + e.RHS.LaTeX() }
+func (e *Equation) String() string {
+	return e.LHS.String() + " = " + e.RHS.String()
+}
+func (e *Equation) LaTeX() string { return e.LHS.LaTeX() + " = " + e.RHS.LaTeX() }
 func (e *Equation) Residual() Expr {
 	return AddOf(e.LHS, MulOf(N(-1), e.RHS)).Simplify()
 }
@@ -820,7 +855,7 @@ func NewMatrix(rows, cols int) *Matrix {
 
 func MatrixFromSlice(rows, cols int, entries []Expr) *Matrix {
 	if len(entries) != rows*cols {
-		panic(fmt.Sprintf("gosympy: MatrixFromSlice needs %d entries, got %d", rows*cols, len(entries)))
+		panic(fmt.Sprintf("gosymbol: MatrixFromSlice needs %d entries, got %d", rows*cols, len(entries)))
 	}
 	m := NewMatrix(rows, cols)
 	for i := 0; i < rows; i++ {
@@ -831,10 +866,22 @@ func MatrixFromSlice(rows, cols int, entries []Expr) *Matrix {
 	return m
 }
 
-func (m *Matrix) Get(row, col int) Expr    { return m.data[row][col] }
-func (m *Matrix) Set(row, col int, val Expr) { m.data[row][col] = val }
-func (m *Matrix) Rows() int                { return m.rows }
-func (m *Matrix) Cols() int                { return m.cols }
+func (m *Matrix) checkBounds(row, col int) {
+	if row < 0 || row >= m.rows || col < 0 || col >= m.cols {
+		panic(fmt.Sprintf("gosymbol: matrix index out of range [%d,%d] for %dx%d", row, col, m.rows, m.cols))
+	}
+}
+
+func (m *Matrix) Get(row, col int) Expr {
+	m.checkBounds(row, col)
+	return m.data[row][col]
+}
+func (m *Matrix) Set(row, col int, val Expr) {
+	m.checkBounds(row, col)
+	m.data[row][col] = val
+}
+func (m *Matrix) Rows() int { return m.rows }
+func (m *Matrix) Cols() int { return m.cols }
 
 func (m *Matrix) String() string {
 	var sb strings.Builder
@@ -876,7 +923,7 @@ func (m *Matrix) LaTeX() string {
 
 func (m *Matrix) MatAdd(other *Matrix) *Matrix {
 	if m.rows != other.rows || m.cols != other.cols {
-		panic("gosympy: matrix dimension mismatch in MatAdd")
+		panic("gosymbol: matrix dimension mismatch in MatAdd")
 	}
 	result := NewMatrix(m.rows, m.cols)
 	for i := 0; i < m.rows; i++ {
@@ -889,7 +936,7 @@ func (m *Matrix) MatAdd(other *Matrix) *Matrix {
 
 func (m *Matrix) MatSub(other *Matrix) *Matrix {
 	if m.rows != other.rows || m.cols != other.cols {
-		panic("gosympy: matrix dimension mismatch in MatSub")
+		panic("gosymbol: matrix dimension mismatch in MatSub")
 	}
 	result := NewMatrix(m.rows, m.cols)
 	for i := 0; i < m.rows; i++ {
@@ -902,7 +949,7 @@ func (m *Matrix) MatSub(other *Matrix) *Matrix {
 
 func (m *Matrix) MatMul(other *Matrix) *Matrix {
 	if m.cols != other.rows {
-		panic("gosympy: matrix dimension mismatch in MatMul")
+		panic("gosymbol: matrix dimension mismatch in MatMul")
 	}
 	result := NewMatrix(m.rows, other.cols)
 	for i := 0; i < m.rows; i++ {
@@ -939,7 +986,7 @@ func (m *Matrix) Transpose() *Matrix {
 
 func (m *Matrix) Trace() Expr {
 	if m.rows != m.cols {
-		panic("gosympy: Trace requires a square matrix")
+		panic("gosymbol: Trace requires a square matrix")
 	}
 	terms := make([]Expr, m.rows)
 	for i := 0; i < m.rows; i++ {
@@ -950,7 +997,7 @@ func (m *Matrix) Trace() Expr {
 
 func (m *Matrix) Det() Expr {
 	if m.rows != m.cols {
-		panic("gosympy: Det requires a square matrix")
+		panic("gosymbol: Det requires a square matrix")
 	}
 	return matDet(m.data, m.rows)
 }
@@ -1000,11 +1047,11 @@ func makeMinor(data [][]Expr, n, skipRow, skipCol int) [][]Expr {
 
 func (m *Matrix) Inverse() (*Matrix, error) {
 	if m.rows != m.cols {
-		return nil, fmt.Errorf("gosympy: Inverse requires a square matrix")
+		return nil, fmt.Errorf("gosymbol: Inverse requires a square matrix")
 	}
 	det := m.Det()
 	if dn, ok := det.Eval(); ok && dn.IsZero() {
-		return nil, fmt.Errorf("gosympy: matrix is singular")
+		return nil, fmt.Errorf("gosymbol: matrix is singular")
 	}
 	n := m.rows
 	cof := NewMatrix(n, n)
@@ -1197,7 +1244,7 @@ func Cancel(num, denom Expr) Expr {
 	if nn, ok := num.Eval(); ok {
 		if dn, ok2 := denom.Eval(); ok2 {
 			if dn.IsZero() {
-				panic("gosympy: Cancel: zero denominator")
+				panic("gosymbol: Cancel: zero denominator")
 			}
 			return numDiv(nn, dn)
 		}
@@ -1563,7 +1610,7 @@ func Laplacian(expr Expr, varNames []string) Expr {
 // Divergence returns ∇·F for a vector field.
 func Divergence(exprs []Expr, varNames []string) Expr {
 	if len(exprs) != len(varNames) {
-		panic("gosympy: Divergence requires len(exprs) == len(varNames)")
+		panic("gosymbol: Divergence requires len(exprs) == len(varNames)")
 	}
 	terms := make([]Expr, len(exprs))
 	for i := range exprs {
@@ -2251,69 +2298,171 @@ func ToJSON(e Expr) (string, error) {
 }
 
 func FromJSON(data map[string]interface{}) (Expr, error) {
-	typ, ok := data["type"].(string)
+	if data == nil {
+		return nil, fmt.Errorf("expression must be an object")
+	}
+	typAny, ok := data["type"]
 	if !ok {
 		return nil, fmt.Errorf("missing 'type' field")
 	}
+	typ, ok := typAny.(string)
+	if !ok || typ == "" {
+		return nil, fmt.Errorf("field 'type' must be a non-empty string")
+	}
+
+	subObj := func(field string) (map[string]interface{}, error) {
+		v, ok := data[field]
+		if !ok {
+			return nil, fmt.Errorf("%s: missing %q", typ, field)
+		}
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("%s: %q must be an object", typ, field)
+		}
+		return m, nil
+	}
+
+	subObjArray := func(field string) ([]map[string]interface{}, error) {
+		v, ok := data[field]
+		if !ok {
+			return nil, fmt.Errorf("%s: missing %q", typ, field)
+		}
+		raw, ok := v.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("%s: %q must be an array", typ, field)
+		}
+		out := make([]map[string]interface{}, len(raw))
+		for i, it := range raw {
+			m, ok := it.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("%s: %q[%d] must be an object", typ, field, i)
+			}
+			out[i] = m
+		}
+		return out, nil
+	}
+
+	subString := func(field string) (string, error) {
+		v, ok := data[field]
+		if !ok {
+			return "", fmt.Errorf("%s: missing %q", typ, field)
+		}
+		s, ok := v.(string)
+		if !ok || s == "" {
+			return "", fmt.Errorf("%s: %q must be a non-empty string", typ, field)
+		}
+		return s, nil
+	}
+
+	subNumberAsInt := func(field string) (int, error) {
+		v, ok := data[field]
+		if !ok {
+			return 0, fmt.Errorf("%s: missing %q", typ, field)
+		}
+		n, ok := v.(float64)
+		if !ok {
+			return 0, fmt.Errorf("%s: %q must be a number", typ, field)
+		}
+		return int(n), nil
+	}
+
 	switch typ {
 	case "num":
-		val, _ := data["value"].(string)
+		valAny, ok := data["value"]
+		if !ok {
+			return nil, fmt.Errorf("num: missing 'value'")
+		}
+		val, ok := valAny.(string)
+		if !ok || val == "" {
+			return nil, fmt.Errorf("num: 'value' must be a non-empty string")
+		}
 		r := new(big.Rat)
 		if _, ok := r.SetString(val); !ok {
 			return nil, fmt.Errorf("invalid num value: %s", val)
 		}
 		return &Num{val: r}, nil
+
 	case "sym":
-		name, _ := data["name"].(string)
+		name, err := subString("name")
+		if err != nil {
+			return nil, err
+		}
 		return S(name), nil
+
 	case "add":
-		rawTerms, _ := data["terms"].([]interface{})
-		terms := make([]Expr, len(rawTerms))
-		for i, t := range rawTerms {
-			m, _ := t.(map[string]interface{})
-			e, err := FromJSON(m)
+		objs, err := subObjArray("terms")
+		if err != nil {
+			return nil, err
+		}
+		terms := make([]Expr, len(objs))
+		for i, o := range objs {
+			e, err := FromJSON(o)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("add: terms[%d]: %w", i, err)
 			}
 			terms[i] = e
 		}
 		return AddOf(terms...), nil
+
 	case "mul":
-		rawFactors, _ := data["factors"].([]interface{})
-		factors := make([]Expr, len(rawFactors))
-		for i, f := range rawFactors {
-			m, _ := f.(map[string]interface{})
-			e, err := FromJSON(m)
+		objs, err := subObjArray("factors")
+		if err != nil {
+			return nil, err
+		}
+		factors := make([]Expr, len(objs))
+		for i, o := range objs {
+			e, err := FromJSON(o)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("mul: factors[%d]: %w", i, err)
 			}
 			factors[i] = e
 		}
 		return MulOf(factors...), nil
+
 	case "pow":
-		baseM, _ := data["base"].(map[string]interface{})
-		expM, _ := data["exp"].(map[string]interface{})
-		base, err := FromJSON(baseM)
+		baseM, err := subObj("base")
 		if err != nil {
 			return nil, err
+		}
+		expM, err := subObj("exp")
+		if err != nil {
+			return nil, err
+		}
+		base, err := FromJSON(baseM)
+		if err != nil {
+			return nil, fmt.Errorf("pow: base: %w", err)
 		}
 		exp, err := FromJSON(expM)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pow: exp: %w", err)
 		}
 		return PowOf(base, exp), nil
+
 	case "func":
-		name, _ := data["name"].(string)
-		argM, _ := data["arg"].(map[string]interface{})
-		arg, err := FromJSON(argM)
+		name, err := subString("name")
 		if err != nil {
 			return nil, err
 		}
+		argM, err := subObj("arg")
+		if err != nil {
+			return nil, err
+		}
+		arg, err := FromJSON(argM)
+		if err != nil {
+			return nil, fmt.Errorf("func: arg: %w", err)
+		}
 		return funcOf(name, arg).Simplify(), nil
+
 	case "bigo":
-		v, _ := data["var"].(string)
-		orderF, _ := data["order"].(float64)
-		return OTerm(v, int(orderF)), nil
+		v, err := subString("var")
+		if err != nil {
+			return nil, err
+		}
+		order, err := subNumberAsInt("order")
+		if err != nil {
+			return nil, err
+		}
+		return OTerm(v, order), nil
 	}
 	return nil, fmt.Errorf("unknown expression type: %s", typ)
 }
@@ -2340,10 +2489,11 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		if !ok {
 			return nil, fmt.Errorf("missing param: %s", key)
 		}
-		if val, ok := v.(map[string]interface{}); ok {
-			return FromJSON(val)
+		val, ok := v.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid type for param %s", key)
 		}
-		return nil, fmt.Errorf("invalid type for param %s", key)
+		return FromJSON(val)
 	}
 	getString := func(key string) (string, error) {
 		v, ok := req.Params[key]
@@ -2407,10 +2557,28 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		if !ok {
 			return nil, fmt.Errorf("param %s must be matrix object", key)
 		}
-		rowsF, _ := raw["rows"].(float64)
-		colsF, _ := raw["cols"].(float64)
+
+		rowsF, ok := raw["rows"].(float64)
+		if !ok {
+			return nil, fmt.Errorf("matrix.rows must be a number")
+		}
+		colsF, ok := raw["cols"].(float64)
+		if !ok {
+			return nil, fmt.Errorf("matrix.cols must be a number")
+		}
 		rows, cols := int(rowsF), int(colsF)
-		entriesRaw, _ := raw["entries"].([]interface{})
+		if rows <= 0 || cols <= 0 {
+			return nil, fmt.Errorf("matrix dimensions must be positive")
+		}
+
+		entriesRawAny, ok := raw["entries"]
+		if !ok {
+			return nil, fmt.Errorf("matrix.entries missing")
+		}
+		entriesRaw, ok := entriesRawAny.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("matrix.entries must be an array")
+		}
 		if len(entriesRaw) != rows*cols {
 			return nil, fmt.Errorf("matrix entries count mismatch")
 		}
@@ -2429,10 +2597,7 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		return MatrixFromSlice(rows, cols, entries), nil
 	}
 	respond := func(e Expr) ToolResponse {
-		j, _ := ToJSON(e)
-		var m map[string]interface{}
-		json.Unmarshal([]byte(j), &m)
-		return ToolResponse{Result: m, LaTeX: LaTeX(e), String: String(e)}
+		return ToolResponse{Result: e.toJSON(), LaTeX: LaTeX(e), String: String(e)}
 	}
 	respondMatrix := func(mat *Matrix) ToolResponse {
 		return ToolResponse{
@@ -2516,8 +2681,19 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
 		}
-		nF, _ := req.Params["n"].(float64)
-		return respond(DiffN(e, v, int(nF)))
+		nAny, ok := req.Params["n"]
+		if !ok {
+			return ToolResponse{Error: "missing param: n"}
+		}
+		nF, ok := nAny.(float64)
+		if !ok {
+			return ToolResponse{Error: "param n must be a number"}
+		}
+		n := int(nF)
+		if n < 0 {
+			return ToolResponse{Error: "param n must be >= 0"}
+		}
+		return respond(DiffN(e, v, n))
 
 	case "pdiff":
 		e, err := getExpr("expr")
@@ -2576,8 +2752,14 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
 		}
-		aF, _ := req.Params["a"].(float64)
-		bF, _ := req.Params["b"].(float64)
+		aF, ok := req.Params["a"].(float64)
+		if !ok {
+			return ToolResponse{Error: "param a must be a number"}
+		}
+		bF, ok := req.Params["b"].(float64)
+		if !ok {
+			return ToolResponse{Error: "param b must be a number"}
+		}
 		result := DefiniteIntegrate(e, v, aF, bF)
 		return ToolResponse{Result: result, String: fmt.Sprintf("%.10g", result)}
 
@@ -2725,8 +2907,7 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		latexSols := make([]string, len(res.Solutions))
 		strSols := make([]string, len(res.Solutions))
 		for i, s := range res.Solutions {
-			j, _ := ToJSON(s)
-			json.Unmarshal([]byte(j), &sols[i])
+			sols[i] = s.toJSON()
 			latexSols[i] = LaTeX(s)
 			strSols[i] = String(s)
 		}
@@ -2737,22 +2918,52 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		}
 
 	case "solve_quadratic":
-		a, _ := getExpr("a")
-		b, _ := getExpr("b")
-		c, _ := getExpr("c")
+		a, err := getExpr("a")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b, err := getExpr("b")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c, err := getExpr("c")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		return solvesTool(SolveQuadratic(a, b, c))
 
 	case "solve_quadratic_exact":
-		a, _ := getExpr("a")
-		b, _ := getExpr("b")
-		c, _ := getExpr("c")
+		a, err := getExpr("a")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b, err := getExpr("b")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c, err := getExpr("c")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		return solvesTool(SolveQuadraticExact(a, b, c))
 
 	case "solve_cubic":
-		a, _ := getExpr("a")
-		b, _ := getExpr("b")
-		c, _ := getExpr("c")
-		d, _ := getExpr("d")
+		a, err := getExpr("a")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b, err := getExpr("b")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c, err := getExpr("c")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		d, err := getExpr("d")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		return solvesTool(SolveCubic(a, b, c, d))
 
 	case "solve_polynomial_newton":
@@ -2770,12 +2981,30 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		return solvesTool(SolvePolynomialNewton(e, v, rangeF, tolF, int(iterF)))
 
 	case "solve_system_2x2":
-		a1, _ := getExpr("a1")
-		b1, _ := getExpr("b1")
-		c1, _ := getExpr("c1")
-		a2, _ := getExpr("a2")
-		b2, _ := getExpr("b2")
-		c2, _ := getExpr("c2")
+		a1, err := getExpr("a1")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b1, err := getExpr("b1")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c1, err := getExpr("c1")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		a2, err := getExpr("a2")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		b2, err := getExpr("b2")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		c2, err := getExpr("c2")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
 		x, y, err := SolveLinearSystem2x2(a1, b1, c1, a2, b2, c2)
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
