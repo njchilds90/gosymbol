@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to go-sympy are documented here.
+All notable changes to gosympy are documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
@@ -30,12 +30,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - `CHANGELOG.md`
 - GitHub Actions CI workflow (`.github/workflows/ci.yml`)
 - Comprehensive test suite covering all new functionality
-
+  
 ### Changed
 - Package renamed from `sympy` to `gosympy` for import clarity
 - `Mul.Simplify()` now sorts factors lexicographically for deterministic output
 - `Add.Simplify()` now handles `Sym` like-term collection directly
-
+ 
 ---
 
 ## [0.1.0] — 2026-02-18
