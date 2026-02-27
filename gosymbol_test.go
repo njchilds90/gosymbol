@@ -289,6 +289,7 @@ func TestExpand_Distribution(t *testing.T) {
 	)
 	expanded := gosymbol.Expand(expr)
 	str := gosymbol.String(expanded)
+	// Should contain x^2, x terms, and constant
 	if !strings.Contains(str, "x") {
 		t.Errorf("expanded (x+1)(x+2) should contain x, got %s", str)
 	}
