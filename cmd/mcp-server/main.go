@@ -16,10 +16,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	gosymbol "github.com/njchilds90/gosymbol"
 )
+
+const maxBodyBytes = 1 << 20 // 1 MiB
 
 func main() {
 	port := flag.Int("port", 8080, "Port to listen on")
@@ -31,11 +34,8 @@ func main() {
 	mux.HandleFunc("/tool", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"error": fmt.Sprint(rec),
-				})
+				log.Printf("panic in /tool: %v\n%s", rec, string(debug.Stack()))
+				http.Error(w, "internal server error", http.StatusInternalServerError)
 			}
 		}()
 
@@ -44,17 +44,24 @@ func main() {
 			return
 		}
 
-		// Basic robustness against huge bodies.
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		defer r.Body.Close()
 
-		var req gosymbol.ToolRequest
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
+
+		var req gosymbol.ToolRequest
 		if err := dec.Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		// Ensure there's no trailing junk.
+		if dec.More() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: trailing data"})
 			return
 		}
 
@@ -93,7 +100,7 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	if err := srv.ListenAndServe(); err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }
