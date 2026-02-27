@@ -39,29 +39,29 @@ go get github.com/njchilds90/gosymbol
 ```go
 import gosymbol "github.com/njchilds90/gosymbol"
 
-x := gosympy.S("x")
+x := gosymbol.S("x")
 
 // Build expressions
-expr := gosympy.AddOf(gosympy.MulOf(gosympy.N(3), gosympy.PowOf(x, gosympy.N(2))), gosympy.N(1))
+expr := gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(3), gosymbol.PowOf(x, gosymbol.N(2))), gosymbol.N(1))
 
-fmt.Println(gosympy.String(expr))  // 3*x^2 + 1
-fmt.Println(gosympy.LaTeX(expr))   // 3 x^{2} + 1
+fmt.Println(gosymbol.String(expr))  // 3*x^2 + 1
+fmt.Println(gosymbol.LaTeX(expr))   // 3 x^{2} + 1
 
 // Differentiate
-d := gosympy.Diff(expr, "x")
-fmt.Println(gosympy.String(d))     // 6*x
+d := gosymbol.Diff(expr, "x")
+fmt.Println(gosymbol.String(d))     // 6*x
 
 // Integrate
-integral, ok := gosympy.Integrate(x, "x")
-fmt.Println(gosympy.String(integral)) // 1/2*x^2
+integral, ok := gosymbol.Integrate(x, "x")
+fmt.Println(gosymbol.String(integral)) // 1/2*x^2
 
 // Solve
-res := gosympy.SolveLinear(gosympy.N(2), gosympy.N(-6))
-fmt.Println(gosympy.String(res.Solutions[0])) // 3
+res := gosymbol.SolveLinear(gosymbol.N(2), gosymbol.N(-6))
+fmt.Println(gosymbol.String(res.Solutions[0])) // 3
 
 // Substitute
-v := gosympy.Sub(expr, "x", gosympy.N(2))
-fmt.Println(gosympy.String(v))     // 13
+v := gosymbol.Sub(expr, "x", gosymbol.N(2))
+fmt.Println(gosymbol.String(v))     // 13
 ```
 
 ---
@@ -79,7 +79,6 @@ fmt.Println(gosympy.String(v))     // 13
 | LaTeX output | ✅ |
 
 ---
-
 ## Expression Types
 
 Every expression implements the `Expr` interface:
@@ -147,7 +146,6 @@ gosympy.SqrtOf(x)   // sqrt(x)
 ```
 
 ---
-
 ## Calculus
 
 ### Differentiation
@@ -202,7 +200,6 @@ series := gosympy.TaylorSeries(gosympy.SinOf(x), "x", gosympy.N(0), 5)
 ```
 
 ---
-
 ## Algebra
 
 ### Expand
@@ -240,7 +237,6 @@ syms := gosympy.FreeSymbols(expr)
 ```
 
 ---
-
 ## Solvers
 
 ### Linear: ax + b = 0
@@ -268,7 +264,6 @@ xSol, ySol, err := gosympy.SolveLinearSystem2x2(a1, b1, c1, a2, b2, c2)
 ```
 
 ---
-
 ## Equations
 
 ```go
@@ -279,7 +274,6 @@ fmt.Println(eq.Residual())         // x + -5 (expression = 0)
 ```
 
 ---
-
 ## LaTeX Output
 
 All expressions support LaTeX rendering:
@@ -291,7 +285,6 @@ gosympy.LaTeX(gosympy.SinOf(x))                      // \sin\left(x\right)
 ```
 
 ---
-
 ## JSON Serialization
 
 Expressions serialize to/from a structured JSON tree — ideal for passing between services or AI tools.
@@ -319,7 +312,6 @@ expr, err := gosympy.FromJSON(m)
 | `Func` | `{"type":"func","name":"sin","arg":{...}}` |
 
 ---
-
 ## AI Agent Integration
 
 ### MCP Tool Interface
@@ -375,13 +367,12 @@ You have access to a symbolic math engine. Build expression trees as JSON and ca
          "mul" (with "factors":[]), "pow" (with "base" and "exp"),
          "func" (with "name" and "arg").
 - Available tools: simplify, diff, integrate, expand, substitute, solve_linear,
-                   solve_quadratic, to_latex, free_symbols, degree, taylor.
+                 solve_quadratic, to_latex, free_symbols, degree, taylor.
 - Always simplify results before presenting to the user.
 - Use to_latex to present math in rendered form.
 ```
 
 ---
-
 ## Architecture
 
 ```
@@ -419,7 +410,6 @@ sympy.go
 ```
 
 ---
-
 ## Limitations
 
 - No symbolic factoring (`factor(x^2-1)` → `(x-1)(x+1)`)

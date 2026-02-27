@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+	"io"
 
 	gosymbol "github.com/njchilds90/gosymbol"
 )
@@ -57,11 +58,18 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		// Ensure there's no trailing junk.
-		if dec.More() {
+		// Ensure there's no trailing junk by attempting to decode one more value.
+		var extra interface{}
+		if err := dec.Decode(&extra); err == nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: trailing data"})
+			return
+		} else if err != io.EOF {
+			// If there was a non-EOF error, report it.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 

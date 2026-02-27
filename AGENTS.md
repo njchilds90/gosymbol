@@ -290,5 +290,5 @@ func handleMCPRequest(body []byte) []byte {
 }
 
 // Get tool schema to register with agent framework
-schema := gosympy.MCPToolSpec()
+var schema = gosympy.MCPToolSpec()
 ```
