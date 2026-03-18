@@ -1,6 +1,6 @@
-# Contributing to go-symbol
+# Contributing to gosymbol
 
-Thank you for your interest in contributing. go-symbol is a minimal symbolic math kernel and contributions are welcome — especially ones that stay true to the design goals.
+Thank you for your interest in contributing. gosymbol is a minimal symbolic math kernel and contributions are welcome — especially ones that stay true to the design goals.
 
 ---
 
@@ -21,7 +21,7 @@ Before contributing, please understand what gosymbol is and isn't:
 - A CAS with every possible feature
 - A replacement for Mathematica/Maple
 
-If your contribution would turn `sympy.go` into a multi-thousand line file that requires external dependencies, it's probably better suited as a separate package that imports gosymbol.
+If your contribution would turn `gosymbol.go` into a multi-thousand line file that requires external dependencies, it's probably better suited as a separate package that imports gosymbol.
 
 ---
 
@@ -92,6 +92,7 @@ go test -race ./...
 - [ ] `go test ./...` passes
 - [ ] `go test -race ./...` passes
 - [ ] `gofmt -l .` produces no output
+- [ ] `go vet ./...` passes
 - [ ] New exported symbols have doc comments
 - [ ] CHANGELOG.md updated under `[Unreleased]`
 - [ ] AGENTS.md updated if any MCP tools were added/changed

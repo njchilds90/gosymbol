@@ -3,7 +3,8 @@
 // Exposes gosymbol tools as an HTTP endpoint for AI agent frameworks.
 //
 // Usage:
-//   go run cmd/mcp-server/main.go -port 8080
+//
+//	go run cmd/mcp-server/main.go -port 8080
 //
 // Tool call endpoint: POST /tool
 // Schema endpoint:    GET  /schema
@@ -14,11 +15,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"runtime/debug"
 	"time"
-	"io"
 
 	gosymbol "github.com/njchilds90/gosymbol"
 )

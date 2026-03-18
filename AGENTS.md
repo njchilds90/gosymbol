@@ -1,12 +1,12 @@
-# AGENTS.md — go-sympy for AI Agents
+# AGENTS.md — gosymbol for AI Agents
 
-This document is written for AI agents, LLMs, and automated systems using go-sympy as a symbolic math backend.
+This document is written for AI agents, LLMs, and automated systems using gosymbol as a symbolic math backend.
 
 ---
 
-## What go-sympy does
+## What gosymbol does
 
-go-sympy is a deterministic symbolic math kernel. Given an expression tree (as JSON), it can:
+gosymbol is a deterministic symbolic math kernel. Given an expression tree (as JSON), it can:
 
 - **Simplify** algebraic expressions
 - **Differentiate** (symbolic derivatives, chain rule, product rule, trig, exp, ln)
@@ -238,13 +238,13 @@ Step 3 — substitute x=0 and compute F(1) - F(0) = 1/3 - 0 = 1/3.
 
 ## Determinism Guarantee
 
-go-sympy guarantees that:
+gosymbol guarantees that:
 - Identical input expressions always produce identical output
 - Term ordering in Add and Mul is lexicographically stable
 - No random or stateful elements affect output
 - Safe to call from concurrent goroutines (expressions are immutable after simplification)
 
-This makes go-sympy reliable for reasoning chains where the agent checks intermediate results.
+This makes gosymbol reliable for reasoning chains where the agent checks intermediate results.
 
 ---
 
@@ -278,17 +278,17 @@ Common errors:
 A standalone MCP server wrapper is planned. Until then, embed directly:
 
 ```go
-import gosympy "github.com/njchilds90/go-sympy"
+import gosymbol "github.com/njchilds90/gosymbol"
 
 // Handle incoming tool call from agent
 func handleMCPRequest(body []byte) []byte {
-    var req gosympy.ToolRequest
+    var req gosymbol.ToolRequest
     json.Unmarshal(body, &req)
-    resp := gosympy.HandleToolCall(req)
+    resp := gosymbol.HandleToolCall(req)
     result, _ := json.Marshal(resp)
     return result
 }
 
 // Get tool schema to register with agent framework
-var schema = gosympy.MCPToolSpec()
+var schema = gosymbol.MCPToolSpec()
 ```
