@@ -6,7 +6,7 @@
 
 **Minimal deterministic symbolic math kernel in pure Go.**
 
-Single file. Zero dependencies. Exact rational arithmetic. AI-agent ready.
+Modular multi-file layout. Zero dependencies. Exact rational arithmetic. AI-agent ready.
 
 ---
 
@@ -41,8 +41,8 @@ import gosymbol "github.com/njchilds90/gosymbol"
 
 x := gosymbol.S("x")
 
-// Build expressions
-expr := gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(3), gosymbol.PowOf(x, gosymbol.N(2))), gosymbol.N(1))
+// Parse infix or build expressions directly.
+expr := gosymbol.Parse("3*x^2 + 1")
 
 fmt.Println(gosymbol.String(expr))  // 3*x^2 + 1
 fmt.Println(gosymbol.LaTeX(expr))   // 3 x^{2} + 1
@@ -70,7 +70,20 @@ fmt.Println(gosymbol.String(v))     // 13
 ## Repository Layout
 
 ```text
-gosymbol.go                 # Core symbolic engine
+expr.go                     # Expr interface, equations, matrices, helpers
+num.go                      # Exact rational number node
+sym.go                      # Symbol node + assumptions
+add.go                      # Sum node + canonical addition
+mul.go                      # Product node + factor combination
+pow.go                      # Power node
+func.go                     # Function node family (trig/hyperbolic/inverses)
+calculus.go                 # Diff, Integrate, Taylor, definite integration
+algebra.go                  # Expand, factor, partial fractions, polynomials
+solvers.go                  # Linear/quadratic/system/equation solvers
+serialize.go                # JSON round-trip support
+latex.go                    # LaTeX-oriented helpers
+mcp.go                      # MCP request/response + tool dispatch
+parsing.go                  # Infix parser for string inputs
 cmd/mcp-server/main.go      # Optional standalone HTTP MCP server
 examples/main.go            # Runnable usage demo
 gosymbol_test.go            # Black-box test suite
@@ -83,7 +96,7 @@ gosymbol_test.go            # Black-box test suite
 
 | Goal | Status |
 |------|--------|
-| Single file (`gosymbol.go`) | ✅ |
+| Modular root-package layout | ✅ |
 | Zero external dependencies | ✅ |
 | Deterministic simplification | ✅ |
 | Exact rational arithmetic | ✅ (`math/big.Rat`) |
@@ -159,6 +172,32 @@ gosymbol.SqrtOf(x)   // sqrt(x)
 ```
 
 ---
+### Infix parsing and assumptions
+
+```go
+expr := gosymbol.Parse("sin(x)^2 + cos(x)^2")
+fmt.Println(gosymbol.String(gosymbol.DeepSimplify(expr))) // 1
+
+xPos := gosymbol.SAssume("x", gosymbol.Assumptions{Real: true, Positive: true})
+fmt.Println(gosymbol.String(gosymbol.AbsOf(xPos))) // x
+```
+
+## Migration Notes
+
+The package keeps the existing short compatibility surface (`N`, `S`, `Diff`, `Eq`, and related helpers) so existing callers continue to compile.
+It now also exposes a descriptive full-name surface such as `CreateRationalNumber`, `CreateSymbolicVariable`, `DifferentiateExpression`, `SymbolicIntegration`, `FactorExpression`, and `AsciiPrettyPrint` for teams that prefer more explicit APIs.
+
+```go
+expression := gosymbol.CreateAddition(
+    gosymbol.CreatePower(gosymbol.CreateSymbolicVariable("x"), gosymbol.CreateRationalNumber(2)),
+    gosymbol.CreateRationalNumber(1),
+)
+result, _ := gosymbol.SymbolicIntegration(expression, "x")
+fmt.Println(gosymbol.String(result))
+```
+
+---
+
 ## Calculus
 
 ### Differentiation

@@ -772,3 +772,123 @@ func TestDeterminism(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_Infix(t *testing.T) {
+	expr, err := gosymbol.ParseWithError("3*x^2 + 1")
+	if err != nil {
+		t.Fatalf("ParseWithError returned error: %v", err)
+	}
+	if got := gosymbol.String(expr); got != "1 + 3*x^2" && got != "3*x^2 + 1" {
+		t.Fatalf("unexpected parsed expression: %s", got)
+	}
+}
+
+func TestAssumptions_PositiveAbsSimplifies(t *testing.T) {
+	x := gosymbol.SAssume("x", gosymbol.Assumptions{Real: true, Positive: true})
+	if got := gosymbol.String(gosymbol.AbsOf(x)); got != "x" {
+		t.Fatalf("expected abs(x) to simplify to x, got %s", got)
+	}
+}
+
+func TestSolveEquation_Linear(t *testing.T) {
+	res := gosymbol.SolveEquation(
+		gosymbol.Eq(
+			gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(2), gosymbol.S("x")), gosymbol.N(4)),
+			gosymbol.N(0),
+		),
+		"x",
+	)
+	if res.Error != "" {
+		t.Fatalf("unexpected solve error: %s", res.Error)
+	}
+	if got := gosymbol.String(res.Solutions[0]); got != "-2" {
+		t.Fatalf("expected x=-2, got %s", got)
+	}
+}
+
+func TestHandleToolCall_ParsesStringExpr(t *testing.T) {
+	resp := gosymbol.HandleToolCall(gosymbol.ToolRequest{
+		Tool: "diff",
+		Params: map[string]interface{}{
+			"expr": "x^3",
+			"var":  "x",
+		},
+	})
+	if resp.Error != "" {
+		t.Fatalf("unexpected tool error: %s", resp.Error)
+	}
+	if got := resp.String; got != "3*x^2" {
+		t.Fatalf("expected 3*x^2, got %s", got)
+	}
+}
+
+func TestFullNameCompatibilitySurface(t *testing.T) {
+	x := gosymbol.CreateSymbolicVariable("x")
+	expr := gosymbol.CreateAddition(
+		gosymbol.CreatePower(x, gosymbol.CreateRationalNumber(2)),
+		gosymbol.CreateRationalNumber(1),
+	)
+	if got := gosymbol.LatexOutput(expr); got == "" {
+		t.Fatal("expected non-empty latex output")
+	}
+}
+
+func TestSymbolicIntegrationAddsConstantNode(t *testing.T) {
+	result, err := gosymbol.SymbolicIntegration(gosymbol.CreateSymbolicVariable("x"), "x")
+	if err != nil {
+		t.Fatalf("unexpected symbolic integration error: %v", err)
+	}
+	if !strings.Contains(gosymbol.String(result), "C") {
+		t.Fatalf("expected explicit integration constant, got %s", gosymbol.String(result))
+	}
+}
+
+func TestFactorExpressionWrapper(t *testing.T) {
+	expr := gosymbol.Parse("(x + 1)*(x + 2)")
+	factored := gosymbol.FactorExpression(gosymbol.Expand(expr))
+	if got := gosymbol.String(factored); !strings.Contains(got, "x + 1") {
+		t.Fatalf("expected factorized expression, got %s", got)
+	}
+}
+
+func TestAsciiPrettyPrint(t *testing.T) {
+	output := gosymbol.AsciiPrettyPrint(gosymbol.Parse("x + 1"))
+	if !strings.Contains(output, "add") {
+		t.Fatalf("expected add node in pretty print, got %s", output)
+	}
+}
+
+func TestLambdifyToGoFunction(t *testing.T) {
+	compiledFunction, err := gosymbol.LambdifyToGoFunction(gosymbol.Parse("x^2 + 1"))
+	if err != nil {
+		t.Fatalf("unexpected lambdify error: %v", err)
+	}
+	if got := compiledFunction(map[string]float64{"x": 3}); got != 10 {
+		t.Fatalf("expected 10, got %v", got)
+	}
+}
+
+func TestPiecewiseExpressionString(t *testing.T) {
+	expr := gosymbol.CreatePiecewiseExpression(
+		[]gosymbol.PiecewiseCase{{Condition: "x > 0", Expression: gosymbol.CreateSymbolicVariable("x")}},
+		gosymbol.CreateRationalNumber(0),
+	)
+	if !strings.Contains(expr.String(), "piecewise") {
+		t.Fatalf("expected piecewise string, got %s", expr.String())
+	}
+}
+
+func BenchmarkParseWithError(b *testing.B) {
+	for index := 0; index < b.N; index++ {
+		if _, err := gosymbol.ParseWithError("sin(x)^2 + cos(x)^2 + x^3"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDifferentiateExpression(b *testing.B) {
+	expr := gosymbol.Parse("x^4 + 2*x^2 + sin(x)")
+	for index := 0; index < b.N; index++ {
+		_ = gosymbol.DifferentiateExpression(expr, "x")
+	}
+}
