@@ -1,0 +1,14 @@
+# Go build/test artifacts
+*.test
+*.out
+coverage.out
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Editor/OS noise
+.DS_Store
