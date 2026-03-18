@@ -36,14 +36,6 @@ func main() {
 	section("Infix parsing")
 	fmt.Println("parse(3*x^2+1)      =", gosymbol.String(gosymbol.Parse("3*x^2 + 1")))
 
-	// ── Full-name compatibility surface ───────────────────────
-	section("Full-name compatibility")
-	fullNameExpr := gosymbol.CreateAddition(
-		gosymbol.CreatePower(gosymbol.CreateSymbolicVariable("x"), gosymbol.CreateRationalNumber(2)),
-		gosymbol.CreateRationalNumber(1),
-	)
-	fmt.Println("full-name API        =", gosymbol.String(fullNameExpr))
-
 	// ── Like-term combination ──────────────────────────────────
 	section("Like-term combination")
 	expr := gosymbol.AddOf(x, x, x, gosymbol.N(2))

@@ -114,13 +114,6 @@ func FromJSON(data map[string]interface{}) (Expr, error) {
 		}
 		return sym, nil
 
-	case "constant":
-		name, err := subString("name")
-		if err != nil {
-			return nil, err
-		}
-		return CreateConstantNode(name), nil
-
 	case "add":
 		objs, err := subObjArray("terms")
 		if err != nil {
@@ -195,41 +188,6 @@ func FromJSON(data map[string]interface{}) (Expr, error) {
 			return nil, err
 		}
 		return OTerm(v, order), nil
-
-	case "piecewise":
-		rawCases, ok := data["cases"].([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("piecewise: 'cases' must be an array")
-		}
-		cases := make([]PiecewiseCase, len(rawCases))
-		for caseIndex, rawCase := range rawCases {
-			caseMap, ok := rawCase.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("piecewise: cases[%d] must be an object", caseIndex)
-			}
-			condition, ok := caseMap["condition"].(string)
-			if !ok {
-				return nil, fmt.Errorf("piecewise: cases[%d].condition must be a string", caseIndex)
-			}
-			expressionMap, ok := caseMap["expression"].(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("piecewise: cases[%d].expression must be an object", caseIndex)
-			}
-			expression, err := FromJSON(expressionMap)
-			if err != nil {
-				return nil, err
-			}
-			cases[caseIndex] = PiecewiseCase{Condition: condition, Expression: expression}
-		}
-		var defaultExpression Expr
-		if rawDefault, hasDefault := data["default"].(map[string]interface{}); hasDefault {
-			parsedDefault, err := FromJSON(rawDefault)
-			if err != nil {
-				return nil, err
-			}
-			defaultExpression = parsedDefault
-		}
-		return CreatePiecewiseExpression(cases, defaultExpression), nil
 	}
 	return nil, fmt.Errorf("unknown expression type: %s", typ)
 }

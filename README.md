@@ -182,22 +182,6 @@ xPos := gosymbol.SAssume("x", gosymbol.Assumptions{Real: true, Positive: true})
 fmt.Println(gosymbol.String(gosymbol.AbsOf(xPos))) // x
 ```
 
-## Migration Notes
-
-The package keeps the existing short compatibility surface (`N`, `S`, `Diff`, `Eq`, and related helpers) so existing callers continue to compile.
-It now also exposes a descriptive full-name surface such as `CreateRationalNumber`, `CreateSymbolicVariable`, `DifferentiateExpression`, `SymbolicIntegration`, `FactorExpression`, and `AsciiPrettyPrint` for teams that prefer more explicit APIs.
-
-```go
-expression := gosymbol.CreateAddition(
-    gosymbol.CreatePower(gosymbol.CreateSymbolicVariable("x"), gosymbol.CreateRationalNumber(2)),
-    gosymbol.CreateRationalNumber(1),
-)
-result, _ := gosymbol.SymbolicIntegration(expression, "x")
-fmt.Println(gosymbol.String(result))
-```
-
----
-
 ## Calculus
 
 ### Differentiation

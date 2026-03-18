@@ -361,37 +361,6 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		}
 		return ToolResponse{LaTeX: LaTeX(e), String: String(e)}
 
-	case "pretty_print":
-		e, err := getExpr("expr")
-		if err != nil {
-			return ToolResponse{Error: err.Error()}
-		}
-		formatted := AsciiPrettyPrint(e)
-		return ToolResponse{Result: formatted, String: formatted}
-
-	case "lambdify":
-		e, err := getExpr("expr")
-		if err != nil {
-			return ToolResponse{Error: err.Error()}
-		}
-		_, err = LambdifyToGoFunction(e)
-		if err != nil {
-			return ToolResponse{Error: err.Error()}
-		}
-		freeVariables := FreeSymbols(e)
-		names := make([]string, 0, len(freeVariables))
-		for freeVariableName := range freeVariables {
-			names = append(names, freeVariableName)
-		}
-		sort.Strings(names)
-		return ToolResponse{
-			Result: map[string]interface{}{
-				"variables":  names,
-				"expression": String(e),
-			},
-			String: "lambdify ready for variables: " + strings.Join(names, ", "),
-		}
-
 	case "free_symbols":
 		e, err := getExpr("expr")
 		if err != nil {
@@ -810,8 +779,6 @@ func MCPToolSpec() string {
 		ts("apart", "Partial fraction decomposition", []string{"num", "denom", "var"}, map[string]string{"num": "object", "denom": "object", "var": "string"}),
 		ts("substitute", "Substitute var with value", []string{"expr", "var", "value"}, map[string]string{"expr": "object", "var": "string", "value": "object"}),
 		ts("to_latex", "Convert to LaTeX", []string{"expr"}, map[string]string{"expr": "object"}),
-		ts("pretty_print", "Render a console-friendly symbolic tree", []string{"expr"}, map[string]string{"expr": "object"}),
-		ts("lambdify", "Validate conversion to a Go closure and return required variables", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("free_symbols", "Return free symbol names", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("diff", "First derivative d/dx", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
 		ts("diff2", "Second derivative d²/dx²", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),

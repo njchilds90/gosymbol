@@ -528,8 +528,6 @@ func collectSymbols(e Expr, out map[string]struct{}) {
 	switch v := e.(type) {
 	case *Sym:
 		out[v.name] = struct{}{}
-	case *ConstantNode:
-		return
 	case *Add:
 		for _, t := range v.terms {
 			collectSymbols(t, out)
@@ -543,13 +541,6 @@ func collectSymbols(e Expr, out map[string]struct{}) {
 		collectSymbols(v.exp, out)
 	case *Func:
 		collectSymbols(v.arg, out)
-	case *PiecewiseExpression:
-		for _, piecewiseCase := range v.Cases {
-			collectSymbols(piecewiseCase.Expression, out)
-		}
-		if v.DefaultExpression != nil {
-			collectSymbols(v.DefaultExpression, out)
-		}
 	}
 }
 
@@ -561,8 +552,6 @@ func Degree(expr Expr, varName string) int {
 	expr = expr.Simplify()
 	switch v := expr.(type) {
 	case *Num:
-		return 0
-	case *ConstantNode:
 		return 0
 	case *Sym:
 		if v.name == varName {
@@ -606,8 +595,6 @@ func extractCoeffs(e Expr, varName string, out PolyCoeffsResult) {
 	switch v := e.(type) {
 	case *Num:
 		addCoeff(out, 0, v)
-	case *ConstantNode:
-		addCoeff(out, 0, v)
 	case *Sym:
 		if v.name == varName {
 			addCoeff(out, 1, N(1))
@@ -646,8 +633,6 @@ func extractCoeffs(e Expr, varName string, out PolyCoeffsResult) {
 		for _, t := range v.terms {
 			extractCoeffs(t, varName, out)
 		}
-	case *PiecewiseExpression:
-		addCoeff(out, 0, v)
 	}
 }
 
