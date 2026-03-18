@@ -9,7 +9,7 @@ Thank you for your interest in contributing. gosymbol is a minimal symbolic math
 Before contributing, please understand what gosymbol is and isn't:
 
 **gosymbol IS:**
-- A minimal, single-file symbolic kernel
+- A minimal, modular symbolic kernel
 - Zero-dependency
 - Deterministic (same input → same output, always)
 - AI/agent embeddable
@@ -21,7 +21,7 @@ Before contributing, please understand what gosymbol is and isn't:
 - A CAS with every possible feature
 - A replacement for Mathematica/Maple
 
-If your contribution would turn `gosymbol.go` into a multi-thousand line file that requires external dependencies, it's probably better suited as a separate package that imports gosymbol.
+If your contribution would turn the root package into a multi-thousand line dependency-heavy subsystem, it's probably better suited as a separate package that imports gosymbol.
 
 ---
 
@@ -73,7 +73,7 @@ New node types (e.g., `Floor`, `Ceiling`, `Piecewise`) must:
 
 ## Test Coverage
 
-All new code must have tests in `gosymbol_test.go`. Tests should:
+All new code must have tests in `comprehensive_test_suite_test.go`. Tests should:
 - Use `package gosymbol_test` (black-box testing)
 - Cover the happy path
 - Cover edge cases (zero, one, negative, rational)

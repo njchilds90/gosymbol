@@ -3,10 +3,12 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/njchilds90/gosymbol.svg)](https://pkg.go.dev/github.com/njchilds90/gosymbol)
 [![Tests](https://github.com/njchilds90/gosymbol/actions/workflows/ci.yml/badge.svg)](https://github.com/njchilds90/gosymbol/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](go.mod)
+[![Coverage](https://img.shields.io/badge/Coverage-go%20test%20-cover-success)](#testing)
 
 **Minimal deterministic symbolic math kernel in pure Go.**
 
-Single file. Zero dependencies. Exact rational arithmetic. AI-agent ready.
+Modular multi-file layout. Zero dependencies. Exact rational arithmetic. AI-agent ready.
 
 ---
 
@@ -41,8 +43,8 @@ import gosymbol "github.com/njchilds90/gosymbol"
 
 x := gosymbol.S("x")
 
-// Build expressions
-expr := gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(3), gosymbol.PowOf(x, gosymbol.N(2))), gosymbol.N(1))
+// Parse infix or build expressions directly.
+expr := gosymbol.Parse("3*x^2 + 1")
 
 fmt.Println(gosymbol.String(expr))  // 3*x^2 + 1
 fmt.Println(gosymbol.LaTeX(expr))   // 3 x^{2} + 1
@@ -70,11 +72,30 @@ fmt.Println(gosymbol.String(v))     // 13
 ## Repository Layout
 
 ```text
-gosymbol.go                 # Core symbolic engine
-cmd/mcp-server/main.go      # Optional standalone HTTP MCP server
-examples/main.go            # Runnable usage demo
-gosymbol_test.go            # Black-box test suite
-.github/workflows/ci.yml    # CI: test/race/gofmt/vet/coverage
+core_expression_interface.go                 # Core expression interface, equations, Big-O, simplification
+rational_number_node.go                     # Exact rational number node
+symbolic_variable_node.go                   # Symbol node + assumptions
+addition_node.go                            # Sum node + canonical addition
+multiplication_node.go                      # Product node + factor combination
+power_node.go                               # Power node
+function_node.go                            # Function node family (trig/hyperbolic/inverses)
+symbolic_calculus_operations.go             # Differentiate, integrate, Taylor, definite integration
+symbolic_algebra_operations.go              # Expand, factor, partial fractions, polynomials
+equation_solving_operations.go              # Linear/quadratic/system/equation solvers
+javascript_object_notation_serialization.go # Structured serialization
+latex_string_output.go                      # LaTeX-oriented helpers
+model_context_protocol_integration.go       # Tool dispatch and schema output
+infix_string_parser.go                      # String parser for infix expressions
+symbolic_matrix_operations.go               # Matrix implementation and aliases
+piecewise_conditional_expression.go         # Piecewise symbolic expressions
+compiled_function_generator.go              # Native closure generation and pretty printing
+backward_compatibility_aliases.go           # Short-name compatibility layer
+arbitrary_constant_term.go                  # Explicit indefinite integration constant
+symbolic_mathematics_errors.go              # Structured symbolic errors
+cmd/mcp-server/main.go                      # Optional standalone HTTP server
+examples/main.go                            # Runnable usage demo
+comprehensive_test_suite_test.go                 # Tests and benchmarks
+.github/workflows/ci.yml                    # CI: test/race/gofmt/vet/coverage
 ```
 
 ---
@@ -83,7 +104,7 @@ gosymbol_test.go            # Black-box test suite
 
 | Goal | Status |
 |------|--------|
-| Single file (`gosymbol.go`) | ✅ |
+| Modular root-package layout | ✅ |
 | Zero external dependencies | ✅ |
 | Deterministic simplification | ✅ |
 | Exact rational arithmetic | ✅ (`math/big.Rat`) |
@@ -159,6 +180,56 @@ gosymbol.SqrtOf(x)   // sqrt(x)
 ```
 
 ---
+### Infix parsing and assumptions
+
+```go
+expr := gosymbol.Parse("sin(x)^2 + cos(x)^2")
+fmt.Println(gosymbol.String(gosymbol.DeepSimplify(expr))) // 1
+
+xPos := gosymbol.SAssume("x", gosymbol.Assumptions{Real: true, Positive: true})
+fmt.Println(gosymbol.String(gosymbol.AbsOf(xPos))) // x
+```
+
+## Rename Mapping
+
+- `expr.go` → `core_expression_interface.go`
+- `num.go` → `rational_number_node.go`
+- `sym.go` → `symbolic_variable_node.go`
+- `add.go` → `addition_node.go`
+- `mul.go` → `multiplication_node.go`
+- `pow.go` → `power_node.go`
+- `func.go` → `function_node.go`
+- `calculus.go` → `symbolic_calculus_operations.go`
+- `algebra.go` → `symbolic_algebra_operations.go`
+- `solvers.go` → `equation_solving_operations.go`
+- `parsing.go` → `infix_string_parser.go`
+- `serialize.go` → `javascript_object_notation_serialization.go`
+- `latex.go` → `latex_string_output.go`
+- `mcp.go` → `model_context_protocol_integration.go`
+- `matrix.go` → `symbolic_matrix_operations.go`
+- `piecewise.go` → `piecewise_conditional_expression.go`
+- `lambdify.go` → `compiled_function_generator.go`
+- `compatibility.go` → `backward_compatibility_aliases.go`
+- `constant.go` → `arbitrary_constant_term.go`
+- `errors.go` → `symbolic_mathematics_errors.go`
+- `gosymbol_test.go` → `comprehensive_test_suite_test.go`
+
+## Migration Notes
+
+The package keeps the existing short compatibility surface (`N`, `S`, `Diff`, `Eq`, and related helpers) so existing callers continue to compile.
+It now also exposes a descriptive full-name surface such as `CreateRationalNumber`, `CreateSymbolicVariable`, `DifferentiateExpression`, `SymbolicIntegration`, `FactorExpression`, and `AsciiPrettyPrint` for teams that prefer more explicit APIs.
+
+```go
+expression := gosymbol.CreateAddition(
+    gosymbol.CreatePower(gosymbol.CreateSymbolicVariable("x"), gosymbol.CreateRationalNumber(2)),
+    gosymbol.CreateRationalNumber(1),
+)
+result, _ := gosymbol.SymbolicIntegration(expression, "x")
+fmt.Println(gosymbol.String(result))
+```
+
+---
+
 ## Calculus
 
 ### Differentiation
