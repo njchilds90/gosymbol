@@ -114,6 +114,18 @@ Get LaTeX rendering of an expression.
 {"tool": "to_latex", "params": {"expr": <EXPR>}}
 ```
 
+### `pretty_print`
+Render a console-friendly expression tree.
+```json
+{"tool": "pretty_print", "params": {"expr": <EXPR OR STRING>}}
+```
+
+### `lambdify`
+Validate conversion of an expression into a native Go closure and return the required variables.
+```json
+{"tool": "lambdify", "params": {"expr": <EXPR OR STRING>}}
+```
+
 ### `free_symbols`
 Get list of variable names in the expression.
 ```json
@@ -310,3 +322,8 @@ func handleMCPRequest(body []byte) []byte {
 // Get tool schema to register with agent framework
 var schema = gosymbol.MCPToolSpec()
 ```
+---
+
+## Migration note
+
+The package still supports the original short compatibility surface, but agents may prefer the descriptive full-name surface such as `CreateRationalNumber`, `CreateSymbolicVariable`, `DifferentiateExpression`, `SymbolicIntegration`, and `HandleModelContextProtocolToolCall` when generating new code.
