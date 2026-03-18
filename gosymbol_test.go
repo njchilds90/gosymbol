@@ -772,3 +772,52 @@ func TestDeterminism(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_Infix(t *testing.T) {
+	expr, err := gosymbol.ParseWithError("3*x^2 + 1")
+	if err != nil {
+		t.Fatalf("ParseWithError returned error: %v", err)
+	}
+	if got := gosymbol.String(expr); got != "1 + 3*x^2" && got != "3*x^2 + 1" {
+		t.Fatalf("unexpected parsed expression: %s", got)
+	}
+}
+
+func TestAssumptions_PositiveAbsSimplifies(t *testing.T) {
+	x := gosymbol.SAssume("x", gosymbol.Assumptions{Real: true, Positive: true})
+	if got := gosymbol.String(gosymbol.AbsOf(x)); got != "x" {
+		t.Fatalf("expected abs(x) to simplify to x, got %s", got)
+	}
+}
+
+func TestSolveEquation_Linear(t *testing.T) {
+	res := gosymbol.SolveEquation(
+		gosymbol.Eq(
+			gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(2), gosymbol.S("x")), gosymbol.N(4)),
+			gosymbol.N(0),
+		),
+		"x",
+	)
+	if res.Error != "" {
+		t.Fatalf("unexpected solve error: %s", res.Error)
+	}
+	if got := gosymbol.String(res.Solutions[0]); got != "-2" {
+		t.Fatalf("expected x=-2, got %s", got)
+	}
+}
+
+func TestHandleToolCall_ParsesStringExpr(t *testing.T) {
+	resp := gosymbol.HandleToolCall(gosymbol.ToolRequest{
+		Tool: "diff",
+		Params: map[string]interface{}{
+			"expr": "x^3",
+			"var":  "x",
+		},
+	})
+	if resp.Error != "" {
+		t.Fatalf("unexpected tool error: %s", resp.Error)
+	}
+	if got := resp.String; got != "3*x^2" {
+		t.Fatalf("expected 3*x^2, got %s", got)
+	}
+}

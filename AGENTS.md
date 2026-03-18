@@ -59,16 +59,22 @@ All expressions are passed as JSON objects with a required `"type"` field.
 
 ### Supported function names
 
-`sin`, `cos`, `tan`, `exp`, `ln`, `abs`
+`sin`, `cos`, `tan`, `exp`, `ln`, `abs`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
 
 ---
 
 ## Available Tools
 
-### `simplify`
-Simplify an expression. Combines like terms, evaluates constants, applies algebraic identities.
+### `parse`
+Parse a string expression into an expression tree.
 ```json
-{"tool": "simplify", "params": {"expr": <EXPR>}}
+{"tool": "parse", "params": {"input": "3*x^2 + 1"}}
+```
+
+### `simplify`
+Simplify an expression. Combines like terms, evaluates constants, applies algebraic identities. `expr` may be JSON or an infix string.
+```json
+{"tool": "simplify", "params": {"expr": <EXPR OR STRING>}}
 ```
 
 ### `diff`
@@ -80,9 +86,15 @@ Differentiate with respect to a variable.
 ### `integrate`
 Rule-based symbolic integration.
 ```json
-{"tool": "integrate", "params": {"expr": <EXPR>, "var": "x"}}
+{"tool": "integrate", "params": {"expr": <EXPR OR STRING>, "var": "x"}}
 ```
 Returns `error` if the form is not supported.
+
+### `integrate_with_constant`
+Rule-based symbolic integration with an explicit `+ C` term.
+```json
+{"tool": "integrate_with_constant", "params": {"expr": <EXPR OR STRING>, "var": "x"}}
+```
 
 ### `expand`
 Expand algebraically (distribute, expand powers).
@@ -129,6 +141,12 @@ Solve `a*x^2 + b*x + c = 0`.
 {"tool": "solve_quadratic", "params": {"a": <EXPR>, "b": <EXPR>, "c": <EXPR>}}
 ```
 Returns float solutions or error for complex roots.
+
+### `solve_equation`
+Solve `lhs = rhs` symbolically for a variable when the equation reduces to degree ≤ 2.
+```json
+{"tool": "solve_equation", "params": {"lhs": <EXPR OR STRING>, "rhs": <EXPR OR STRING>, "var": "x"}}
+```
 
 ### `taylor`
 Taylor series around a point.
@@ -265,11 +283,11 @@ Common errors:
 
 ## Limitations Agents Should Know
 
-1. **No parser** — expressions must be built as JSON trees, not strings like `"2*x+1"`
-2. **Integration is pattern-based** — it will fail on integrals like ∫sin(x²)dx
-3. **Simplification is not always canonical** — two equivalent expressions may not compare equal
-4. **No complex numbers** — computations are real-valued
-5. **Float results** — quadratic solver and numerical integration return floats, not exact rationals
+1. **Parser is intentionally small** — infix strings such as `"2*x+1"` work, but there is still no full SymPy-style language.
+2. **Integration is pattern-based** — it will fail on integrals like ∫sin(x²)dx.
+3. **Simplification is improved but not fully canonical** — equivalent expressions can still differ structurally.
+4. **No complex numbers** — computations are real-valued.
+5. **Float results still appear in selected paths** — e.g. the quadratic float solver and numerical integration.
 
 ---
 

@@ -21,7 +21,7 @@ func main() {
 	// ── Basic expressions ──────────────────────────────────────
 	section("Basic expressions")
 
-	linear := gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(2), x), gosymbol.N(3))
+	linear := gosymbol.Parse("2*x + 3")
 	fmt.Println("2x + 3              =", gosymbol.String(linear))
 	fmt.Println("2x + 3 (LaTeX)      =", gosymbol.LaTeX(linear))
 
@@ -31,6 +31,10 @@ func main() {
 		gosymbol.N(4),
 	)
 	fmt.Println("x^2 - 4x + 4       =", gosymbol.String(quad))
+
+	// ── Infix parsing ──────────────────────────────────────────
+	section("Infix parsing")
+	fmt.Println("parse(3*x^2+1)      =", gosymbol.String(gosymbol.Parse("3*x^2 + 1")))
 
 	// ── Like-term combination ──────────────────────────────────
 	section("Like-term combination")
