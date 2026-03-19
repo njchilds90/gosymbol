@@ -2,11 +2,52 @@ package gosymbol_test
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	gosymbol "github.com/njchilds90/gosymbol"
 )
+
+func TestSymbolicError_IsSymbolicWithoutCause(t *testing.T) {
+	_, err := gosymbol.SymbolicIntegration(gosymbol.AbsOf(gosymbol.S("x")), "x")
+	if err == nil {
+		t.Fatal("expected symbolic integration error")
+	}
+	if !gosymbol.IsSymbolic(err) {
+		t.Fatal("expected error to be recognized as symbolic")
+	}
+	if !errors.Is(err, gosymbol.SymbolicMathematicsSentinelError) {
+		t.Fatal("expected sentinel match for symbolic error")
+	}
+}
+
+func TestSymbolicError_UnwrapIncludesUnderlyingCause(t *testing.T) {
+	underlyingCause := errors.New("root cause")
+	err := &gosymbol.SymbolicMathematicsError{
+		OperationName: "evaluation",
+		Message:       "failed",
+		Cause:         underlyingCause,
+	}
+
+	if !gosymbol.IsSymbolic(err) {
+		t.Fatal("expected error to be recognized as symbolic")
+	}
+	if !errors.Is(err, gosymbol.SymbolicMathematicsSentinelError) {
+		t.Fatal("expected sentinel match for symbolic error")
+	}
+	if !errors.Is(err, underlyingCause) {
+		t.Fatal("expected wrapped underlying cause to be discoverable")
+	}
+
+	var symbolicErr *gosymbol.SymbolicMathematicsError
+	if !errors.As(err, &symbolicErr) {
+		t.Fatal("expected structured symbolic mathematics error")
+	}
+	if symbolicErr.OperationName != "evaluation" {
+		t.Fatalf("expected evaluation operation, got %q", symbolicErr.OperationName)
+	}
+}
 
 // ============================================================
 // Num tests
