@@ -276,6 +276,24 @@ func TestFunc_LaTeX_Sin(t *testing.T) {
 	}
 }
 
+func TestFunc_HyperbolicInverseSimplify(t *testing.T) {
+	x := gosymbol.S("x")
+	if got := gosymbol.String(gosymbol.AsinhOf(gosymbol.SinhOf(x))); got != "x" {
+		t.Fatalf("expected asinh(sinh(x)) to simplify to x, got %s", got)
+	}
+	if got := gosymbol.String(gosymbol.AtanhOf(gosymbol.TanhOf(x))); got != "x" {
+		t.Fatalf("expected atanh(tanh(x)) to simplify to x, got %s", got)
+	}
+}
+
+func TestTrigSimplify_DoubleAngle(t *testing.T) {
+	x := gosymbol.S("x")
+	expr := gosymbol.MulOf(gosymbol.N(2), gosymbol.SinOf(x), gosymbol.CosOf(x))
+	if got := gosymbol.String(gosymbol.DeepSimplify(expr)); got != "sin(2*x)" {
+		t.Fatalf("expected double-angle simplification, got %s", got)
+	}
+}
+
 // ============================================================
 // Expand tests
 // ============================================================
@@ -526,6 +544,42 @@ func TestIntegrate_Exp(t *testing.T) {
 	}
 }
 
+func TestIntegrate_HyperbolicAndInverseFunctions(t *testing.T) {
+	x := gosymbol.S("x")
+	hyperbolicResult, ok := gosymbol.Integrate(gosymbol.SinhOf(gosymbol.MulOf(gosymbol.N(2), x)), "x")
+	if !ok {
+		t.Fatal("integration of sinh(2*x) should succeed")
+	}
+	if got := gosymbol.String(hyperbolicResult); !strings.Contains(got, "cosh(2*x)") {
+		t.Fatalf("expected cosh(2*x) antiderivative, got %s", got)
+	}
+
+	inverseResult, ok := gosymbol.Integrate(gosymbol.AsinhOf(x), "x")
+	if !ok {
+		t.Fatal("integration of asinh(x) should succeed")
+	}
+	if got := gosymbol.String(inverseResult); !strings.Contains(got, "asinh(x)") || !strings.Contains(got, "x^2 + 1") {
+		t.Fatalf("expected asinh antiderivative structure, got %s", got)
+	}
+}
+
+func TestIntegrateWithConstant_UsesConstantNode(t *testing.T) {
+	result, ok := gosymbol.IntegrateWithConstant(gosymbol.S("x"), "x")
+	if !ok {
+		t.Fatal("expected integration with constant to succeed")
+	}
+	if got := gosymbol.String(result); !strings.Contains(got, "C") {
+		t.Fatalf("expected explicit integration constant, got %s", got)
+	}
+	jsonResult, err := gosymbol.ToJSON(result)
+	if err != nil {
+		t.Fatalf("unexpected json error: %v", err)
+	}
+	if !strings.Contains(jsonResult, `"type":"constant"`) {
+		t.Fatalf("expected ArbitraryConstantTerm node in JSON, got %s", jsonResult)
+	}
+}
+
 func TestDefiniteIntegrate(t *testing.T) {
 	// ∫_0^1 x dx = 0.5
 	result := gosymbol.DefiniteIntegrate(gosymbol.S("x"), "x", 0, 1)
@@ -673,6 +727,116 @@ func TestMCPToolSpec(t *testing.T) {
 	var m map[string]interface{}
 	if err := json.Unmarshal([]byte(spec), &m); err != nil {
 		t.Errorf("MCP spec should be valid JSON: %v", err)
+	}
+}
+
+func TestFactorAndLimitFeatures(t *testing.T) {
+	quadratic := gosymbol.AddOf(
+		gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(2)),
+		gosymbol.MulOf(gosymbol.N(-5), gosymbol.S("x")),
+		gosymbol.N(6),
+	)
+	factoredQuadratic := gosymbol.FactorExpression(quadratic)
+	if got := gosymbol.String(gosymbol.Expand(factoredQuadratic)); got != gosymbol.String(gosymbol.Expand(quadratic)) {
+		t.Fatalf("factored quadratic should expand back to original, got %s", got)
+	}
+
+	rational := gosymbol.MulOf(
+		gosymbol.AddOf(gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(2)), gosymbol.N(-1)),
+		gosymbol.PowOf(gosymbol.AddOf(gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(2)), gosymbol.N(-4)), gosymbol.N(-1)),
+	)
+	factoredRational := gosymbol.FactorExpression(rational)
+	originalAtFive, originalOK := gosymbol.Sub(rational, "x", gosymbol.N(5)).Eval()
+	factoredAtFive, factoredOK := gosymbol.Sub(factoredRational, "x", gosymbol.N(5)).Eval()
+	if !originalOK || !factoredOK || !originalAtFive.Equal(factoredAtFive) {
+		t.Fatalf("factored rational should preserve evaluation, got %v and %v", originalAtFive, factoredAtFive)
+	}
+
+	lhospitalLimit, err := gosymbol.LimitExpression(
+		gosymbol.MulOf(gosymbol.SinOf(gosymbol.S("x")), gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(-1))),
+		gosymbol.CreateSymbolicVariable("x"),
+		gosymbol.N(0),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("unexpected L'Hôpital limit error: %v", err)
+	}
+	if got := gosymbol.String(lhospitalLimit); got != "1" {
+		t.Fatalf("expected sin(x)/x limit to equal 1, got %s", got)
+	}
+
+	rightLimit, err := gosymbol.LimitExpression(
+		gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(-1)),
+		gosymbol.CreateSymbolicVariable("x"),
+		gosymbol.N(0),
+		"+",
+	)
+	if err != nil {
+		t.Fatalf("unexpected right-hand limit error: %v", err)
+	}
+	if got := gosymbol.String(rightLimit); got != "inf" {
+		t.Fatalf("expected right-hand 1/x limit to be inf, got %s", got)
+	}
+
+	infinityLimit, err := gosymbol.LimitExpression(
+		gosymbol.MulOf(
+			gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(3), gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(2))), gosymbol.N(1)),
+			gosymbol.PowOf(gosymbol.AddOf(gosymbol.MulOf(gosymbol.N(2), gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(2))), gosymbol.N(5)), gosymbol.N(-1)),
+		),
+		gosymbol.CreateSymbolicVariable("x"),
+		gosymbol.CreateConstantNode("inf"),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("unexpected infinity limit error: %v", err)
+	}
+	if got := gosymbol.String(infinityLimit); got != "3/2" {
+		t.Fatalf("expected limit at infinity to equal 3/2, got %s", got)
+	}
+}
+
+func TestHandleToolCall_NewFactorLimitAndIntegrationTools(t *testing.T) {
+	factorResponse := gosymbol.HandleToolCall(gosymbol.ToolRequest{
+		Tool: "factor_expression",
+		Params: map[string]interface{}{
+			"expr": "x^2 - 5*x + 6",
+		},
+	})
+	if factorResponse.Error != "" {
+		t.Fatalf("unexpected factor_expression error: %s", factorResponse.Error)
+	}
+	if got := gosymbol.String(gosymbol.Expand(gosymbol.Parse(factorResponse.String))); got != gosymbol.String(gosymbol.Parse("x^2 - 5*x + 6")) {
+		t.Fatalf("factor_expression should preserve the expression, got %s", factorResponse.String)
+	}
+
+	limitResponse := gosymbol.HandleToolCall(gosymbol.ToolRequest{
+		Tool: "limit_expression",
+		Params: map[string]interface{}{
+			"expr":      "1/x",
+			"var":       "x",
+			"point":     map[string]interface{}{"type": "num", "value": "0"},
+			"direction": "+",
+		},
+	})
+	if limitResponse.Error != "" {
+		t.Fatalf("unexpected limit_expression error: %s", limitResponse.Error)
+	}
+	if limitResponse.String != "inf" {
+		t.Fatalf("expected inf from limit_expression, got %s", limitResponse.String)
+	}
+
+	integrationResponse := gosymbol.HandleToolCall(gosymbol.ToolRequest{
+		Tool: "perform_symbolic_integration",
+		Params: map[string]interface{}{
+			"expr": "x",
+			"var":  "x",
+		},
+	})
+	if integrationResponse.Error != "" {
+		t.Fatalf("unexpected perform_symbolic_integration error: %s", integrationResponse.Error)
+	}
+	if !strings.Contains(integrationResponse.String, "C") {
+		t.Fatalf("expected perform_symbolic_integration to include C, got %s", integrationResponse.String)
 	}
 }
 

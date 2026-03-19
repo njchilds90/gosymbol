@@ -1,7 +1,7 @@
 package gosymbol
 
 import (
-	"math"
+	"math/big"
 	"sort"
 )
 
@@ -80,186 +80,119 @@ type FactorResult struct {
 	Success bool
 }
 
-// Factor attempts to factor a polynomial in varName.
-// Handles: common GCD factor, difference of squares, perfect square trinomials,
-// monic quadratics with integer roots, sum/difference of cubes.
+// Factor attempts to factor a polynomial or rational expression in varName.
+// It extracts numeric content, applies exact rational-root-based deflation for
+// polynomial factors, and preserves irreducible remainder factors when it
+// cannot factor further over the rationals.
 func Factor(expr Expr, varName string) FactorResult {
+	expr = expr.Simplify()
+	if numeratorExpression, denominatorExpression, isQuotient := extractQuotient(expr); isQuotient {
+		numeratorFactorResult := Factor(numeratorExpression, varName)
+		denominatorFactorResult := Factor(denominatorExpression, varName)
+		factors := append([]Expr{}, numeratorFactorResult.Factors...)
+		for _, denominatorFactor := range denominatorFactorResult.Factors {
+			factors = append(factors, PowOf(denominatorFactor, N(-1)).Simplify())
+		}
+		if len(factors) == 0 {
+			factors = []Expr{expr}
+		}
+		return FactorResult{Factors: factors, Success: numeratorFactorResult.Success || denominatorFactorResult.Success}
+	}
 	expr = Collect(expr, varName).Simplify()
-	coeffs := PolyCoeffs(expr, varName)
-	deg := Degree(expr, varName)
 
-	commonFactor := N(0)
-	for _, c := range coeffs {
-		if cn, ok := c.(*Num); ok && cn.IsInteger() {
-			if commonFactor.IsZero() {
-				commonFactor = numAbs(cn)
-			} else {
-				a := numAbs(commonFactor).val.Num().Int64()
-				b := numAbs(cn).val.Num().Int64()
-				commonFactor = N(gcdInt(a, b))
-			}
+	numericCoefficients, isNumericPolynomial := polynomialNumericCoefficients(expr, varName)
+	if !isNumericPolynomial {
+		return factorNonNumericPolynomial(expr, varName)
+	}
+	degree := highestPolynomialDegree(numericCoefficients)
+	if degree <= 1 {
+		return FactorResult{Factors: []Expr{expr}, Success: false}
+	}
+
+	primitiveContent := extractPolynomialContent(numericCoefficients)
+	primitiveCoefficients := dividePolynomialCoefficients(numericCoefficients, primitiveContent)
+	remainingCoefficients := copyPolynomialCoefficients(primitiveCoefficients)
+	factors := make([]Expr, 0, degree+1)
+	if !primitiveContent.IsOne() {
+		factors = append(factors, primitiveContent)
+	}
+
+	for {
+		remainingDegree := highestPolynomialDegree(remainingCoefficients)
+		if remainingDegree <= 2 {
+			break
+		}
+		rationalRoot, found := findRationalPolynomialRoot(remainingCoefficients)
+		if !found {
+			break
+		}
+		factors = append(factors, linearFactorFromRoot(varName, rationalRoot))
+		remainingCoefficients = dividePolynomialByLinearFactor(remainingCoefficients, rationalRoot)
+	}
+
+	remainingDegree := highestPolynomialDegree(remainingCoefficients)
+	switch remainingDegree {
+	case 0:
+		if constantTerm := remainingCoefficients[0]; !constantTerm.IsOne() {
+			factors = append(factors, constantTerm)
+		}
+	case 1:
+		linearFactor, linearCoefficient := buildLinearPolynomialFactor(varName, remainingCoefficients)
+		if !linearCoefficient.IsOne() {
+			factors = append(factors, linearCoefficient)
+		}
+		factors = append(factors, linearFactor)
+	case 2:
+		quadraticFactors, solved := factorQuadraticPolynomial(varName, remainingCoefficients)
+		if solved {
+			factors = append(factors, quadraticFactors...)
 		} else {
+			quadraticFactor, quadraticCoefficient := buildPolynomialFactorFromCoefficients(varName, remainingCoefficients)
+			if !quadraticCoefficient.IsOne() {
+				factors = append(factors, quadraticCoefficient)
+			}
+			factors = append(factors, quadraticFactor)
+		}
+	default:
+		irreducibleFactor, leadingCoefficient := buildPolynomialFactorFromCoefficients(varName, remainingCoefficients)
+		if !leadingCoefficient.IsOne() {
+			factors = append(factors, leadingCoefficient)
+		}
+		factors = append(factors, irreducibleFactor)
+	}
+
+	filteredFactors := make([]Expr, 0, len(factors))
+	for _, factor := range factors {
+		if numberFactor, isNumber := factor.(*Num); isNumber && numberFactor.IsOne() {
+			continue
+		}
+		filteredFactors = append(filteredFactors, factor.Simplify())
+	}
+	if len(filteredFactors) == 0 {
+		filteredFactors = []Expr{expr}
+	}
+	return FactorResult{Factors: filteredFactors, Success: len(filteredFactors) > 1 || !filteredFactors[0].Equal(expr)}
+}
+
+func factorNonNumericPolynomial(expr Expr, varName string) FactorResult {
+	expr = Collect(expr, varName).Simplify()
+	coefficients := PolyCoeffs(expr, varName)
+	commonFactor := N(0)
+	for _, coefficientExpression := range coefficients {
+		coefficientNumber, isNumber := coefficientExpression.(*Num)
+		if !isNumber || !coefficientNumber.IsInteger() {
 			commonFactor = N(1)
 			break
 		}
+		if commonFactor.IsZero() {
+			commonFactor = numAbs(coefficientNumber)
+			continue
+		}
+		commonFactor = N(gcdInt(commonFactor.val.Num().Int64(), numAbs(coefficientNumber).val.Num().Int64()))
 	}
 	if commonFactor.IsZero() {
 		commonFactor = N(1)
 	}
-
-	scaledCoeffs := map[int]Expr{}
-	if !commonFactor.IsOne() {
-		for d, c := range coeffs {
-			scaledCoeffs[d] = MulOf(c, PowOf(commonFactor, N(-1))).Simplify()
-		}
-	} else {
-		scaledCoeffs = coeffs
-	}
-
-	x := S(varName)
-
-	if deg == 2 {
-		a2, hasA := scaledCoeffs[2]
-		b1, hasB := scaledCoeffs[1]
-		c0, hasC := scaledCoeffs[0]
-		if !hasB {
-			b1 = N(0)
-		}
-		if !hasC {
-			c0 = N(0)
-		}
-		if !hasA {
-			goto fallthrough2
-		}
-
-		// Difference of squares: x² - c (c > 0, perfect square)
-		if isNumEqual(b1, 0) {
-			an, aok := a2.Eval()
-			cn, cok := c0.Eval()
-			if aok && cok && an.IsOne() {
-				cf, _ := cn.val.Float64()
-				if cf < 0 {
-					sqrtC := math.Sqrt(-cf)
-					if math.Abs(sqrtC-math.Round(sqrtC)) < 1e-10 {
-						sq := N(int64(math.Round(sqrtC)))
-						result := []Expr{AddOf(x, MulOf(N(-1), sq)), AddOf(x, sq)}
-						if !commonFactor.IsOne() {
-							result = append([]Expr{commonFactor}, result...)
-						}
-						return FactorResult{Factors: result, Success: true}
-					}
-				}
-			}
-		}
-
-		// Perfect square trinomial
-		{
-			an, aok := a2.Eval()
-			cn, cok := c0.Eval()
-			bn, bok := b1.Eval()
-			if aok && cok && bok {
-				af, _ := an.val.Float64()
-				cf, _ := cn.val.Float64()
-				bf, _ := bn.val.Float64()
-				sqA := math.Sqrt(math.Abs(af))
-				sqC := math.Sqrt(math.Abs(cf))
-				if math.Abs(sqA-math.Round(sqA)) < 1e-10 && math.Abs(sqC-math.Round(sqC)) < 1e-10 {
-					if math.Abs(2*sqA*sqC-math.Abs(bf)) < 1e-10 {
-						sA, sC := int64(math.Round(sqA)), int64(math.Round(sqC))
-						sign := N(1)
-						if bf < 0 {
-							sign = N(-1)
-						}
-						inner := AddOf(MulOf(N(sA), x), MulOf(sign, N(sC)))
-						result := []Expr{PowOf(inner, N(2))}
-						if !commonFactor.IsOne() {
-							result = append([]Expr{commonFactor}, result...)
-						}
-						return FactorResult{Factors: result, Success: true}
-					}
-				}
-			}
-		}
-
-		// Integer root factoring for monic quadratics
-		{
-			an, aok := a2.Eval()
-			cn, cok := c0.Eval()
-			bn, bok := b1.Eval()
-			if aok && cok && bok && an.IsOne() && an.IsInteger() && cn.IsInteger() && bn.IsInteger() {
-				cv := cn.val.Num().Int64()
-				bv := bn.val.Num().Int64()
-				absCv := cv
-				if absCv < 0 {
-					absCv = -absCv
-				}
-				found := false
-				var r1, r2 int64
-				for d := int64(1); d <= absCv && d <= 1000; d++ {
-					if absCv%d == 0 {
-						for _, candidate := range []int64{d, -d, absCv / d, -(absCv / d)} {
-							if candidate*candidate+bv*candidate+cv == 0 {
-								r1 = candidate
-								r2 = -bv - r1
-								found = true
-								break
-							}
-						}
-						if found {
-							break
-						}
-					}
-				}
-				if found {
-					result := []Expr{AddOf(x, N(-r1)), AddOf(x, N(-r2))}
-					if !commonFactor.IsOne() {
-						result = append([]Expr{commonFactor}, result...)
-					}
-					return FactorResult{Factors: result, Success: true}
-				}
-			}
-		}
-	}
-fallthrough2:
-
-	// Degree 3: sum/difference of cubes
-	if deg == 3 {
-		c3, has3 := scaledCoeffs[3]
-		c0, has0 := scaledCoeffs[0]
-		_, has2 := scaledCoeffs[2]
-		_, has1 := scaledCoeffs[1]
-		if has3 && has0 && !has2 && !has1 {
-			an, aok := c3.Eval()
-			cn, cok := c0.Eval()
-			if aok && cok && an.IsOne() {
-				cf, _ := cn.val.Float64()
-				cbrtC := math.Cbrt(math.Abs(cf))
-				if math.Abs(cbrtC-math.Round(cbrtC)) < 1e-10 {
-					b := int64(math.Round(cbrtC))
-					if cf < 0 {
-						result := []Expr{
-							AddOf(x, N(-b)),
-							AddOf(PowOf(x, N(2)), MulOf(N(b), x), N(b*b)),
-						}
-						if !commonFactor.IsOne() {
-							result = append([]Expr{commonFactor}, result...)
-						}
-						return FactorResult{Factors: result, Success: true}
-					} else if cf > 0 {
-						result := []Expr{
-							AddOf(x, N(b)),
-							AddOf(PowOf(x, N(2)), MulOf(N(-b), x), N(b*b)),
-						}
-						if !commonFactor.IsOne() {
-							result = append([]Expr{commonFactor}, result...)
-						}
-						return FactorResult{Factors: result, Success: true}
-					}
-				}
-			}
-		}
-	}
-
 	if !commonFactor.IsOne() {
 		return FactorResult{
 			Factors: []Expr{commonFactor, MulOf(PowOf(commonFactor, N(-1)), expr).Simplify()},
@@ -269,66 +202,279 @@ fallthrough2:
 	return FactorResult{Factors: []Expr{expr}, Success: false}
 }
 
-// ============================================================
-// Limits
-// ============================================================
-
-// LimitResult holds the result of a limit computation.
-type LimitResult struct {
-	Value   Expr
-	Success bool
-	Error   string
+func polynomialNumericCoefficients(expr Expr, varName string) (map[int]*Num, bool) {
+	rawCoefficients := PolyCoeffs(expr, varName)
+	if len(rawCoefficients) == 0 {
+		return nil, false
+	}
+	numericCoefficients := make(map[int]*Num, len(rawCoefficients))
+	for degree, coefficientExpression := range rawCoefficients {
+		coefficientNumber, isNumber := coefficientExpression.(*Num)
+		if !isNumber {
+			return nil, false
+		}
+		numericCoefficients[degree] = coefficientNumber
+	}
+	return numericCoefficients, true
 }
 
-// Limit computes lim_{varName -> point} expr.
-// Tries direct substitution, L'Hôpital (0/0), then Taylor expansion.
-func Limit(expr Expr, varName string, point Expr) LimitResult {
-	return limitRecursive(expr, varName, point, 5)
-}
-
-func limitRecursive(expr Expr, varName string, point Expr, maxLhopital int) LimitResult {
-	expr = expr.Simplify()
-	subbed := expr.Sub(varName, point).Simplify()
-	if v, ok := subbed.Eval(); ok {
-		f, _ := v.val.Float64()
-		if !math.IsNaN(f) && !math.IsInf(f, 0) {
-			return LimitResult{Value: subbed, Success: true}
+func highestPolynomialDegree(coefficients map[int]*Num) int {
+	maximumDegree := -1
+	for degree, coefficient := range coefficients {
+		if coefficient == nil || coefficient.IsZero() {
+			continue
+		}
+		if degree > maximumDegree {
+			maximumDegree = degree
 		}
 	}
-	syms := FreeSymbols(subbed)
-	if _, hasVar := syms[varName]; !hasVar {
-		return LimitResult{Value: subbed, Success: true}
+	return maximumDegree
+}
+
+func extractPolynomialContent(coefficients map[int]*Num) *Num {
+	numeratorGreatestCommonDivisor := big.NewInt(0)
+	denominatorLeastCommonMultiple := big.NewInt(1)
+	for _, coefficient := range coefficients {
+		if coefficient == nil || coefficient.IsZero() {
+			continue
+		}
+		absoluteNumerator := new(big.Int).Abs(coefficient.val.Num())
+		if numeratorGreatestCommonDivisor.Sign() == 0 {
+			numeratorGreatestCommonDivisor.Set(absoluteNumerator)
+		} else {
+			numeratorGreatestCommonDivisor.GCD(nil, nil, numeratorGreatestCommonDivisor, absoluteNumerator)
+		}
+		denominatorLeastCommonMultiple = leastCommonMultipleBigInt(denominatorLeastCommonMultiple, coefficient.val.Denom())
 	}
-	if maxLhopital > 0 {
-		if num, denom, ok := extractQuotient(expr); ok {
-			numAtPoint := num.Sub(varName, point).Simplify()
-			denAtPoint := denom.Sub(varName, point).Simplify()
-			nv, nok := numAtPoint.Eval()
-			dv, dok := denAtPoint.Eval()
-			if nok && dv != nil && nv.IsZero() && dok && dv.IsZero() {
-				dNum := Diff(num, varName)
-				dDen := Diff(denom, varName)
-				return limitRecursive(MulOf(dNum, PowOf(dDen, N(-1))), varName, point, maxLhopital-1)
+	if numeratorGreatestCommonDivisor.Sign() == 0 {
+		return N(1)
+	}
+	return &Num{val: new(big.Rat).SetFrac(numeratorGreatestCommonDivisor, denominatorLeastCommonMultiple)}
+}
+
+func leastCommonMultipleBigInt(left, right *big.Int) *big.Int {
+	if left.Sign() == 0 {
+		return new(big.Int).Abs(right)
+	}
+	if right.Sign() == 0 {
+		return new(big.Int).Abs(left)
+	}
+	greatestCommonDivisor := new(big.Int)
+	greatestCommonDivisor.GCD(nil, nil, left, right)
+	result := new(big.Int).Mul(new(big.Int).Abs(left), new(big.Int).Abs(right))
+	return result.Div(result, greatestCommonDivisor)
+}
+
+func dividePolynomialCoefficients(coefficients map[int]*Num, divisor *Num) map[int]*Num {
+	result := make(map[int]*Num, len(coefficients))
+	for degree, coefficient := range coefficients {
+		result[degree] = numDiv(coefficient, divisor)
+	}
+	return result
+}
+
+func copyPolynomialCoefficients(coefficients map[int]*Num) map[int]*Num {
+	result := make(map[int]*Num, len(coefficients))
+	for degree, coefficient := range coefficients {
+		result[degree] = &Num{val: coefficient.Rat()}
+	}
+	return result
+}
+
+func normalizePolynomialToIntegers(coefficients map[int]*Num) map[int]*big.Int {
+	commonDenominator := big.NewInt(1)
+	for _, coefficient := range coefficients {
+		if coefficient == nil || coefficient.IsZero() {
+			continue
+		}
+		commonDenominator = leastCommonMultipleBigInt(commonDenominator, coefficient.val.Denom())
+	}
+	integerCoefficients := make(map[int]*big.Int, len(coefficients))
+	for degree, coefficient := range coefficients {
+		scaledNumerator := new(big.Int).Mul(coefficient.val.Num(), new(big.Int).Quo(commonDenominator, coefficient.val.Denom()))
+		integerCoefficients[degree] = scaledNumerator
+	}
+	return integerCoefficients
+}
+
+func findRationalPolynomialRoot(coefficients map[int]*Num) (*Num, bool) {
+	integerCoefficients := normalizePolynomialToIntegers(coefficients)
+	degree := highestPolynomialDegree(coefficients)
+	if degree <= 0 {
+		return nil, false
+	}
+	leadingCoefficient := integerCoefficients[degree]
+	constantCoefficient, hasConstant := integerCoefficients[0]
+	if !hasConstant {
+		constantCoefficient = big.NewInt(0)
+	}
+	if constantCoefficient.Sign() == 0 {
+		return N(0), true
+	}
+	numeratorCandidates := integerDivisors(constantCoefficient)
+	denominatorCandidates := integerDivisors(leadingCoefficient)
+	for _, numeratorCandidate := range numeratorCandidates {
+		for _, denominatorCandidate := range denominatorCandidates {
+			if denominatorCandidate.Sign() == 0 {
+				continue
+			}
+			root := &Num{val: new(big.Rat).SetFrac(numeratorCandidate, denominatorCandidate)}
+			if polynomialEvaluatesToZero(coefficients, root.val) {
+				return root, true
+			}
+			negativeRoot := numNeg(root)
+			if polynomialEvaluatesToZero(coefficients, negativeRoot.val) {
+				return negativeRoot, true
 			}
 		}
 	}
-	if pt, ok := point.Eval(); ok {
-		_, ptOk := pt.val.Float64()
-		if ptOk {
-			series := TaylorSeries(expr, varName, point, 4)
-			subSeries := series.Sub(varName, point).Simplify()
-			if v, ok2 := subSeries.Eval(); ok2 {
-				f, _ := v.val.Float64()
-				if !math.IsNaN(f) && !math.IsInf(f, 0) {
-					return LimitResult{Value: subSeries, Success: true}
-				}
-			}
+	return nil, false
+}
+
+func integerDivisors(value *big.Int) []*big.Int {
+	absoluteValue := new(big.Int).Abs(value)
+	if absoluteValue.Sign() == 0 {
+		return []*big.Int{big.NewInt(0)}
+	}
+	if absoluteValue.BitLen() > 31 {
+		return []*big.Int{new(big.Int).Set(absoluteValue)}
+	}
+	intValue := absoluteValue.Int64()
+	divisors := make([]*big.Int, 0)
+	for candidate := int64(1); candidate*candidate <= intValue; candidate++ {
+		if intValue%candidate != 0 {
+			continue
+		}
+		divisors = append(divisors, big.NewInt(candidate))
+		pairedDivisor := intValue / candidate
+		if pairedDivisor != candidate {
+			divisors = append(divisors, big.NewInt(pairedDivisor))
 		}
 	}
-	return LimitResult{
-		Error:   "limit could not be determined: " + expr.String() + " as " + varName + " -> " + point.String(),
-		Success: false,
+	return divisors
+}
+
+func polynomialEvaluatesToZero(coefficients map[int]*Num, point *big.Rat) bool {
+	maximumDegree := highestPolynomialDegree(coefficients)
+	accumulator := new(big.Rat)
+	for degree := maximumDegree; degree >= 0; degree-- {
+		accumulator.Mul(accumulator, point)
+		if coefficient, hasCoefficient := coefficients[degree]; hasCoefficient {
+			accumulator.Add(accumulator, coefficient.Rat())
+		}
 	}
+	return accumulator.Sign() == 0
+}
+
+func dividePolynomialByLinearFactor(coefficients map[int]*Num, root *Num) map[int]*Num {
+	maximumDegree := highestPolynomialDegree(coefficients)
+	reducedCoefficients := make(map[int]*Num, maximumDegree)
+	synthetic := make([]*big.Rat, maximumDegree+1)
+	for degree := maximumDegree; degree >= 0; degree-- {
+		if coefficient, hasCoefficient := coefficients[degree]; hasCoefficient {
+			synthetic[maximumDegree-degree] = coefficient.Rat()
+		} else {
+			synthetic[maximumDegree-degree] = new(big.Rat)
+		}
+	}
+	result := make([]*big.Rat, maximumDegree)
+	result[0] = new(big.Rat).Set(synthetic[0])
+	for index := 1; index < len(synthetic)-1; index++ {
+		nextCoefficient := new(big.Rat).Mul(result[index-1], root.Rat())
+		nextCoefficient.Add(nextCoefficient, synthetic[index])
+		result[index] = nextCoefficient
+	}
+	for index, coefficient := range result {
+		reducedDegree := maximumDegree - 1 - index
+		reducedCoefficients[reducedDegree] = ratToNum(coefficient)
+	}
+	return reducedCoefficients
+}
+
+func linearFactorFromRoot(varName string, root *Num) Expr {
+	return AddOf(S(varName), numNeg(root)).Simplify()
+}
+
+func factorQuadraticPolynomial(varName string, coefficients map[int]*Num) ([]Expr, bool) {
+	quadraticCoefficient := coefficients[2]
+	linearCoefficient := coefficients[1]
+	if linearCoefficient == nil {
+		linearCoefficient = N(0)
+	}
+	constantCoefficient := coefficients[0]
+	if constantCoefficient == nil {
+		constantCoefficient = N(0)
+	}
+	discriminant := numSub(numMul(linearCoefficient, linearCoefficient), numMul(N(4), numMul(quadraticCoefficient, constantCoefficient)))
+	discriminantSquareRoot, hasExactSquareRoot := exactSquareRoot(discriminant)
+	if !hasExactSquareRoot {
+		return nil, false
+	}
+	twoA := numMul(N(2), quadraticCoefficient)
+	rootOne := numDiv(numAdd(numNeg(linearCoefficient), discriminantSquareRoot), twoA)
+	rootTwo := numDiv(numSub(numNeg(linearCoefficient), discriminantSquareRoot), twoA)
+	return []Expr{
+		quadraticCoefficient,
+		linearFactorFromRoot(varName, rootOne),
+		linearFactorFromRoot(varName, rootTwo),
+	}, true
+}
+
+func exactSquareRoot(value *Num) (*Num, bool) {
+	if value.IsNegative() {
+		return nil, false
+	}
+	numeratorSquareRoot := integerSquareRoot(value.val.Num())
+	denominatorSquareRoot := integerSquareRoot(value.val.Denom())
+	if numeratorSquareRoot == nil || denominatorSquareRoot == nil {
+		return nil, false
+	}
+	return &Num{val: new(big.Rat).SetFrac(numeratorSquareRoot, denominatorSquareRoot)}, true
+}
+
+func integerSquareRoot(value *big.Int) *big.Int {
+	if value.Sign() < 0 {
+		return nil
+	}
+	root := new(big.Int).Sqrt(value)
+	if new(big.Int).Mul(root, root).Cmp(value) != 0 {
+		return nil
+	}
+	return root
+}
+
+func buildLinearPolynomialFactor(varName string, coefficients map[int]*Num) (Expr, *Num) {
+	return buildPolynomialFactorFromCoefficients(varName, coefficients)
+}
+
+func buildPolynomialFactorFromCoefficients(varName string, coefficients map[int]*Num) (Expr, *Num) {
+	degrees := make([]int, 0, len(coefficients))
+	for degree, coefficient := range coefficients {
+		if coefficient == nil || coefficient.IsZero() {
+			continue
+		}
+		degrees = append(degrees, degree)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(degrees)))
+	leadingDegree := degrees[0]
+	leadingCoefficient := coefficients[leadingDegree]
+	terms := make([]Expr, 0, len(degrees))
+	for _, degree := range degrees {
+		coefficient := numDiv(coefficients[degree], leadingCoefficient)
+		switch degree {
+		case 0:
+			terms = append(terms, coefficient)
+		case 1:
+			terms = append(terms, MulOf(coefficient, S(varName)).Simplify())
+		default:
+			terms = append(terms, MulOf(coefficient, PowOf(S(varName), N(int64(degree)))).Simplify())
+		}
+	}
+	return AddOf(terms...).Simplify(), leadingCoefficient
+}
+
+func ratToNum(value *big.Rat) *Num {
+	return &Num{val: new(big.Rat).Set(value)}
 }
 
 func extractQuotient(e Expr) (num, denom Expr, ok bool) {

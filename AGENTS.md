@@ -96,10 +96,22 @@ Rule-based symbolic integration with an explicit `+ C` term.
 {"tool": "integrate_with_constant", "params": {"expr": <EXPR OR STRING>, "var": "x"}}
 ```
 
+### `perform_symbolic_integration`
+Compatibility alias for indefinite integration with an explicit arbitrary constant term.
+```json
+{"tool": "perform_symbolic_integration", "params": {"expr": <EXPR OR STRING>, "var": "x"}}
+```
+
 ### `expand`
 Expand algebraically (distribute, expand powers).
 ```json
 {"tool": "expand", "params": {"expr": <EXPR>}}
+```
+
+### `factor_expression`
+Factor a polynomial or rational expression using the first free symbol in lexicographic order.
+```json
+{"tool": "factor_expression", "params": {"expr": <EXPR OR STRING>}}
 ```
 
 ### `substitute`
@@ -124,6 +136,12 @@ Render a console-friendly expression tree.
 Validate conversion of an expression into a native Go closure and return the required variables.
 ```json
 {"tool": "lambdify", "params": {"expr": <EXPR OR STRING>}}
+```
+
+### `limit_expression`
+Compute a symbolic limit. Optional `"direction"` may be `"+"`, `"-"`, or `"both"`. Infinity points may be passed as `{"type":"constant","name":"inf"}` or `{"type":"constant","name":"-inf"}`.
+```json
+{"tool": "limit_expression", "params": {"expr": <EXPR OR STRING>, "var": "x", "point": <EXPR>, "direction": "+"}}
 ```
 
 ### `free_symbols`
@@ -266,6 +284,29 @@ Step 3 — substitute x=0 and compute F(1) - F(0) = 1/3 - 0 = 1/3.
 
 ---
 
+### Example 4: Factor and take a one-sided limit
+
+Goal: Factor `x^2 - 5x + 6` and compute `lim_{x->0+} 1/x`
+
+```json
+{"tool": "factor_expression", "params": {"expr": "x^2 - 5*x + 6"}}
+```
+
+Expected response string: `(x + -3)*(x + -2)` or an equivalent factorization.
+
+```json
+{"tool": "limit_expression", "params": {
+    "expr": "1/x",
+    "var": "x",
+    "point": {"type":"num","value":"0"},
+    "direction": "+"
+}}
+```
+
+Expected response string: `inf`
+
+---
+
 ## Determinism Guarantee
 
 gosymbol guarantees that:
@@ -296,10 +337,11 @@ Common errors:
 ## Limitations Agents Should Know
 
 1. **Parser is intentionally small** — infix strings such as `"2*x+1"` work, but there is still no full SymPy-style language.
-2. **Integration is pattern-based** — it will fail on integrals like ∫sin(x²)dx.
-3. **Simplification is improved but not fully canonical** — equivalent expressions can still differ structurally.
-4. **No complex numbers** — computations are real-valued.
-5. **Float results still appear in selected paths** — e.g. the quadratic float solver and numerical integration.
+2. **Integration is pattern-based** — it will fail on integrals like ∫sin(x²)dx even though common inverse/hyperbolic forms are supported.
+3. **Factoring and limits are strongest for rational/polynomial forms** — harder transcendental cases may still return an error.
+4. **Simplification is improved but not fully canonical** — equivalent expressions can still differ structurally.
+5. **No complex numbers** — computations are real-valued.
+6. **Float results still appear in selected paths** — e.g. the quadratic float solver, selected function evaluations, and numerical integration.
 
 ---
 

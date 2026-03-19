@@ -421,16 +421,22 @@ fmt.Println(resp.Error)  // error if failed
 | Tool | Description | Required params |
 |------|-------------|-----------------|
 | `simplify` | Simplify expression | `expr` |
+| `deep_simplify` / `deeply_simplify_expression` | Repeated simplification with trig/hyperbolic identities | `expr` |
 | `diff` | Differentiate | `expr`, `var` |
 | `integrate` | Integrate (symbolic) | `expr`, `var` |
+| `integrate_with_constant` / `perform_symbolic_integration` | Indefinite integration with explicit arbitrary constant | `expr`, `var` |
 | `expand` | Algebraic expansion | `expr` |
+| `factor` / `factor_expression` | Factor polynomial or rational expressions | `expr`, `var` or `expr` |
 | `substitute` | Substitute variable | `expr`, `var`, `value` |
 | `to_latex` | Convert to LaTeX | `expr` |
 | `free_symbols` | List free variables | `expr` |
 | `degree` | Polynomial degree | `expr`, `var` |
+| `limit` / `limit_expression` | Symbolic limits with optional `direction` (`+`, `-`, `both`) | `expr`, `var`, `point` |
 | `solve_linear` | Solve ax+b=0 | `a`, `b` |
 | `solve_quadratic` | Solve ax²+bx+c=0 | `a`, `b`, `c` |
 | `taylor` | Taylor series | `expr`, `var`, `around`?, `order`? |
+
+Recent additions include exact-content polynomial/rational factoring, one-sided and infinity-aware limits with basic L'Hôpital support, and broader inverse/hyperbolic calculus support such as `asin`, `acos`, `atan`, `asinh`, `acosh`, and `atanh`.
 
 ### Get the MCP Tool Schema
 
@@ -450,7 +456,8 @@ You have access to a symbolic math engine. Build expression trees as JSON and ca
 - Types: "num" (with "value"), "sym" (with "name"), "add" (with "terms":[]), 
          "mul" (with "factors":[]), "pow" (with "base" and "exp"),
          "func" (with "name" and "arg").
-- Available tools: simplify, diff, integrate, expand, substitute, solve_linear,
+- Available tools: simplify, deep_simplify, diff, integrate, integrate_with_constant,
+                 factor_expression, limit_expression, expand, substitute, solve_linear,
                  solve_quadratic, to_latex, free_symbols, degree, taylor.
 - Always simplify results before presenting to the user.
 - Use to_latex to present math in rendered form.
@@ -496,11 +503,8 @@ gosymbol.go
 ---
 ## Limitations
 
-- No symbolic factoring (`factor(x^2-1)` → `(x-1)(x+1)`)
-- No symbolic limits (`limit(sin(x)/x, x, 0)`)
-- No matrix algebra
+- Matrix support is intentionally small and focused on deterministic symbolic helpers
 - No Risch integration algorithm (transcendental integrals)
-- No expression parser (build ASTs programmatically or via JSON)
 - No pattern matching engine
 - No Gröbner bases
 - No complex number arithmetic
@@ -513,10 +517,6 @@ This is a **minimal symbolic kernel**. See the [Future Directions](#future-direc
 
 Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- [ ] Expression parser (`"2*x^2 + 3*x + 1"` → AST)
-- [ ] Symbolic factoring
-- [ ] `factor()`, `collect()`, `cancel()`, `apart()`
-- [ ] `limit()` using substitution and L'Hôpital
 - [ ] Symbolic matrix operations
 - [ ] `pprint()` ASCII pretty-printer
 - [ ] MCP server wrapper (standalone HTTP server)

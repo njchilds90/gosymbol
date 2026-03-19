@@ -49,6 +49,17 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		}
 		return s, nil
 	}
+	getOptionalString := func(key, defaultValue string) string {
+		v, ok := req.Params[key]
+		if !ok {
+			return defaultValue
+		}
+		s, ok := v.(string)
+		if !ok {
+			return defaultValue
+		}
+		return s
+	}
 	getStrings := func(key string) ([]string, error) {
 		v, ok := req.Params[key]
 		if !ok {
@@ -190,6 +201,13 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		}
 		return respond(DeepSimplify(e))
 
+	case "deeply_simplify_expression":
+		e, err := getExpr("expr")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		return respond(DeeplySimplifyExpression(e))
+
 	case "trig_simplify":
 		e, err := getExpr("expr")
 		if err != nil {
@@ -309,6 +327,21 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		result, ok := IntegrateWithConstant(e, v)
 		if !ok {
 			return ToolResponse{Error: "integration failed: unsupported form"}
+		}
+		return respond(result)
+
+	case "perform_symbolic_integration":
+		e, err := getExpr("expr")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		v, err := getString("var")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		result, integrationError := PerformSymbolicIntegration(e, v)
+		if integrationError != nil {
+			return ToolResponse{Error: integrationError.Error()}
 		}
 		return respond(result)
 
@@ -490,6 +523,13 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		}
 		return ToolResponse{Result: strs, String: strings.Join(strs, " * ")}
 
+	case "factor_expression":
+		e, err := getExpr("expr")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		return respond(FactorExpression(e))
+
 	case "solve_linear":
 		a, err := getExpr("a")
 		if err != nil {
@@ -643,7 +683,28 @@ func HandleToolCall(req ToolRequest) ToolResponse {
 		if err != nil {
 			return ToolResponse{Error: err.Error()}
 		}
-		res := Limit(e, v, pt)
+		direction := getOptionalString("direction", "")
+		res := LimitWithDirection(e, v, pt, direction)
+		if !res.Success {
+			return ToolResponse{Error: res.Error}
+		}
+		return respond(res.Value)
+
+	case "limit_expression":
+		e, err := getExpr("expr")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		v, err := getString("var")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		pt, err := getExpr("point")
+		if err != nil {
+			return ToolResponse{Error: err.Error()}
+		}
+		direction := getOptionalString("direction", "")
+		res := LimitWithDirection(e, v, pt, direction)
 		if !res.Success {
 			return ToolResponse{Error: res.Error}
 		}
@@ -801,12 +862,14 @@ func MCPToolSpec() string {
 		ts("parse", "Parse an infix string expression into JSON/tree form", []string{"input"}, map[string]string{"input": "string"}),
 		ts("simplify", "Simplify a symbolic expression", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("deep_simplify", "Apply multiple simplification passes including trig identities", []string{"expr"}, map[string]string{"expr": "object"}),
+		ts("deeply_simplify_expression", "Compatibility alias for deep symbolic simplification", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("trig_simplify", "Apply trig identities (sin²+cos²=1, exp(ln(x))=x, etc.)", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("canonicalize", "Expand and canonicalize expression", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("expand", "Algebraically expand expression", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("collect", "Collect terms by powers of variable", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
 		ts("cancel", "Simplify rational num/denom", []string{"num", "denom"}, map[string]string{"num": "object", "denom": "object"}),
 		ts("factor", "Factor polynomial in variable", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
+		ts("factor_expression", "Factor an expression using its first free variable", []string{"expr"}, map[string]string{"expr": "object"}),
 		ts("apart", "Partial fraction decomposition", []string{"num", "denom", "var"}, map[string]string{"num": "object", "denom": "object", "var": "string"}),
 		ts("substitute", "Substitute var with value", []string{"expr", "var", "value"}, map[string]string{"expr": "object", "var": "string", "value": "object"}),
 		ts("to_latex", "Convert to LaTeX", []string{"expr"}, map[string]string{"expr": "object"}),
@@ -824,13 +887,15 @@ func MCPToolSpec() string {
 		ts("divergence", "Divergence ∇·F", []string{"exprs", "vars"}, map[string]string{"exprs": "array", "vars": "array"}),
 		ts("integrate", "Symbolic integration (rule-based)", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
 		ts("integrate_with_constant", "Symbolic integration with explicit +C", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
+		ts("perform_symbolic_integration", "Full-name integration entry point with explicit arbitrary constant", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
 		ts("definite_integrate", "Numerical ∫_a^b. Requires a,b (numbers)", []string{"expr", "var", "a", "b"}, map[string]string{"expr": "object", "var": "string", "a": "number", "b": "number"}),
 		ts("taylor", "Taylor series", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string", "around": "object", "order": "integer"}),
 		ts("taylor_remainder", "Taylor series with BigO remainder", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string", "order": "integer"}),
 		ts("maclaurin", "Maclaurin series (Taylor around 0)", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string", "order": "integer"}),
 		ts("degree", "Polynomial degree in variable", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
 		ts("poly_coeffs", "Extract polynomial coefficients by degree", []string{"expr", "var"}, map[string]string{"expr": "object", "var": "string"}),
-		ts("limit", "lim_{var->point} expr", []string{"expr", "var", "point"}, map[string]string{"expr": "object", "var": "string", "point": "object"}),
+		ts("limit", "lim_{var->point} expr with optional one-sided direction", []string{"expr", "var", "point"}, map[string]string{"expr": "object", "var": "string", "point": "object", "direction": "string"}),
+		ts("limit_expression", "Compatibility alias for limit with optional direction", []string{"expr", "var", "point"}, map[string]string{"expr": "object", "var": "string", "point": "object", "direction": "string"}),
 		ts("solve_linear", "Solve a*x+b=0 exactly", []string{"a", "b"}, map[string]string{"a": "object", "b": "object"}),
 		ts("solve_quadratic", "Solve a*x²+b*x+c=0 (float)", []string{"a", "b", "c"}, map[string]string{"a": "object", "b": "object", "c": "object"}),
 		ts("solve_quadratic_exact", "Solve a*x²+b*x+c=0 with exact roots when possible", []string{"a", "b", "c"}, map[string]string{"a": "object", "b": "object", "c": "object"}),

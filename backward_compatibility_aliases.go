@@ -84,11 +84,16 @@ func ExpandExpression(expression Expression) Expression { return Expand(expressi
 
 // SymbolicIntegration returns an antiderivative with an explicit arbitrary constant.
 func SymbolicIntegration(expression Expression, variableName string) (Expression, error) {
-	antiderivative, succeeded := Integrate(expression, variableName)
+	antiderivative, succeeded := IntegrateWithConstant(expression, variableName)
 	if !succeeded {
 		return nil, newSymbolicMathematicsError("symbolic integration", "unsupported integrand", nil)
 	}
-	return CreateAddition(antiderivative, CreateArbitraryIntegrationConstant()), nil
+	return antiderivative, nil
+}
+
+// PerformSymbolicIntegration preserves the descriptive full-name integration entry point.
+func PerformSymbolicIntegration(expression Expression, variableName string) (Expression, error) {
+	return SymbolicIntegration(expression, variableName)
 }
 
 // LimitExpression computes a symbolic limit using the existing limit engine.
@@ -96,11 +101,10 @@ func LimitExpression(expression Expression, variable *SymbolicVariableNode, poin
 	if variable == nil {
 		return nil, newSymbolicMathematicsError("limit", "variable must not be nil", nil)
 	}
-	limitResult := Limit(expression, variable.Name(), point)
+	limitResult := LimitWithDirection(expression, variable.Name(), point, direction)
 	if !limitResult.Success {
 		return nil, newSymbolicMathematicsError("limit", limitResult.Error, nil)
 	}
-	_ = direction
 	return limitResult.Value, nil
 }
 

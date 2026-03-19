@@ -94,6 +94,21 @@ func trigSimplifyExpr(e Expr) Expr {
 						return SinOf(MulOf(N(2), sineFunction.arg))
 					}
 				}
+				if cosineFunction, ok := newFactors[1].(*Func); ok && cosineFunction.name == "cos" {
+					if sineFunction, ok := newFactors[2].(*Func); ok && sineFunction.name == "sin" && sineFunction.arg.Equal(cosineFunction.arg) {
+						return SinOf(MulOf(N(2), sineFunction.arg))
+					}
+				}
+				if hyperbolicSineFunction, ok := newFactors[1].(*Func); ok && hyperbolicSineFunction.name == "sinh" {
+					if hyperbolicCosineFunction, ok := newFactors[2].(*Func); ok && hyperbolicCosineFunction.name == "cosh" && hyperbolicSineFunction.arg.Equal(hyperbolicCosineFunction.arg) {
+						return SinhOf(MulOf(N(2), hyperbolicSineFunction.arg))
+					}
+				}
+				if hyperbolicCosineFunction, ok := newFactors[1].(*Func); ok && hyperbolicCosineFunction.name == "cosh" {
+					if hyperbolicSineFunction, ok := newFactors[2].(*Func); ok && hyperbolicSineFunction.name == "sinh" && hyperbolicSineFunction.arg.Equal(hyperbolicCosineFunction.arg) {
+						return SinhOf(MulOf(N(2), hyperbolicSineFunction.arg))
+					}
+				}
 			}
 		}
 		return MulOf(newFactors...)
@@ -113,6 +128,7 @@ func trigFindPythagorean(e Expr) Expr {
 	type trigTerm struct {
 		funcName string
 		argStr   string
+		argExpr  Expr
 		coeff    *Num
 		idx      int
 	}
@@ -123,7 +139,7 @@ func trigFindPythagorean(e Expr) Expr {
 			if fn, ok3 := p.base.(*Func); ok3 {
 				if en, ok4 := p.exp.(*Num); ok4 && en.IsInteger() && en.val.Num().Int64() == 2 {
 					if fn.name == "sin" || fn.name == "cos" || fn.name == "sinh" || fn.name == "cosh" {
-						trigTerms = append(trigTerms, trigTerm{fn.name, fn.arg.String(), coeff, idx})
+						trigTerms = append(trigTerms, trigTerm{funcName: fn.name, argStr: fn.arg.String(), argExpr: fn.arg, coeff: coeff, idx: idx})
 					}
 				}
 			}
@@ -144,6 +160,19 @@ func trigFindPythagorean(e Expr) Expr {
 				}
 				newTerms = append(newTerms, ti.coeff)
 				return AddOf(newTerms...).Simplify()
+			}
+			if ti.argStr == tj.argStr && numCmp(ti.coeff, numNeg(tj.coeff)) == 0 {
+				if (ti.funcName == "cos" && tj.funcName == "sin") || (ti.funcName == "sin" && tj.funcName == "cos") {
+					newTerms := []Expr{}
+					for idx, t := range add.terms {
+						if idx != ti.idx && idx != tj.idx {
+							newTerms = append(newTerms, t)
+						}
+					}
+					angle := ti.argExpr
+					newTerms = append(newTerms, MulOf(ti.coeff, CosOf(MulOf(N(2), angle))).Simplify())
+					return AddOf(newTerms...).Simplify()
+				}
 			}
 			if ti.argStr == tj.argStr && numCmp(ti.coeff, tj.coeff) == 0 {
 				if (ti.funcName == "cosh" && tj.funcName == "sinh") || (ti.funcName == "sinh" && tj.funcName == "cosh") {

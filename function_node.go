@@ -90,6 +90,9 @@ func (f *Func) Simplify() Expr {
 		if isNumEqual(arg, 0) {
 			return N(0)
 		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), SinOf(negatedArgument)).Simplify()
+		}
 		if inner, ok := arg.(*Func); ok && inner.name == "asin" {
 			return inner.arg
 		}
@@ -97,12 +100,18 @@ func (f *Func) Simplify() Expr {
 		if isNumEqual(arg, 0) {
 			return N(1)
 		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return CosOf(negatedArgument)
+		}
 		if inner, ok := arg.(*Func); ok && inner.name == "acos" {
 			return inner.arg
 		}
 	case "tan":
 		if isNumEqual(arg, 0) {
 			return N(0)
+		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), TanOf(negatedArgument)).Simplify()
 		}
 		if inner, ok := arg.(*Func); ok && inner.name == "atan" {
 			return inner.arg
@@ -125,12 +134,18 @@ func (f *Func) Simplify() Expr {
 		if isNumEqual(arg, 0) {
 			return N(0)
 		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), SinhOf(negatedArgument)).Simplify()
+		}
 		if inner, ok := arg.(*Func); ok && inner.name == "asinh" {
 			return inner.arg
 		}
 	case "cosh":
 		if isNumEqual(arg, 0) {
 			return N(1)
+		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return CoshOf(negatedArgument)
 		}
 		if inner, ok := arg.(*Func); ok && inner.name == "acosh" {
 			return inner.arg
@@ -139,7 +154,44 @@ func (f *Func) Simplify() Expr {
 		if isNumEqual(arg, 0) {
 			return N(0)
 		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), TanhOf(negatedArgument)).Simplify()
+		}
 		if inner, ok := arg.(*Func); ok && inner.name == "atanh" {
+			return inner.arg
+		}
+	case "asin":
+		if isNumEqual(arg, 0) {
+			return N(0)
+		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), AsinOf(negatedArgument)).Simplify()
+		}
+	case "atan":
+		if isNumEqual(arg, 0) {
+			return N(0)
+		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), AtanOf(negatedArgument)).Simplify()
+		}
+	case "asinh":
+		if isNumEqual(arg, 0) {
+			return N(0)
+		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), AsinhOf(negatedArgument)).Simplify()
+		}
+		if inner, ok := arg.(*Func); ok && inner.name == "sinh" {
+			return inner.arg
+		}
+	case "atanh":
+		if isNumEqual(arg, 0) {
+			return N(0)
+		}
+		if negatedArgument, isNegated := peelLeadingNegative(arg); isNegated {
+			return MulOf(N(-1), AtanhOf(negatedArgument)).Simplify()
+		}
+		if inner, ok := arg.(*Func); ok && inner.name == "tanh" {
 			return inner.arg
 		}
 	case "abs":
@@ -283,4 +335,19 @@ func (f *Func) Arg() Expr        { return f.arg }
 func isNumEqual(e Expr, v int64) bool {
 	n, ok := e.(*Num)
 	return ok && n.Equal(N(v))
+}
+
+func peelLeadingNegative(argument Expr) (Expr, bool) {
+	multiplicationNode, isMultiplication := argument.(*Mul)
+	if !isMultiplication || len(multiplicationNode.factors) < 2 {
+		return nil, false
+	}
+	leadingFactor, isNumber := multiplicationNode.factors[0].(*Num)
+	if !isNumber || !leadingFactor.IsNegOne() {
+		return nil, false
+	}
+	if len(multiplicationNode.factors) == 2 {
+		return multiplicationNode.factors[1], true
+	}
+	return MulOf(multiplicationNode.factors[1:]...).Simplify(), true
 }
