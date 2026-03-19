@@ -34,6 +34,9 @@ func CeilOf(arg Expr) Expr  { return funcOf("ceil", arg).Simplify() }
 func SignOf(arg Expr) Expr  { return funcOf("sign", arg).Simplify() }
 
 func (f *Func) Simplify() Expr {
+	if simplificationDepthExceeded(f) {
+		return f
+	}
 	arg := f.arg.Simplify()
 	if n, ok := arg.(*Num); ok {
 		v, _ := n.val.Float64()
@@ -213,6 +216,8 @@ func (f *Func) Simplify() Expr {
 	}
 	return &Func{name: f.name, arg: arg}
 }
+
+func (f *Func) Canonicalize() Expr { return Canonicalize(f) }
 
 func (f *Func) String() string { return f.name + "(" + f.arg.String() + ")" }
 

@@ -21,6 +21,7 @@ func F(p, q int64) *Num {
 func NFloat(f float64) *Num { return &Num{val: new(big.Rat).SetFloat64(f)} }
 
 func (n *Num) Simplify() Expr        { return n }
+func (n *Num) Canonicalize() Expr    { return Canonicalize(n) }
 func (n *Num) Sub(string, Expr) Expr { return n }
 func (n *Num) Diff(string) Expr      { return N(0) }
 func (n *Num) Eval() (*Num, bool)    { return n, true }

@@ -17,6 +17,9 @@ func CreateImaginaryUnit() *ComplexNumberNode {
 }
 
 func (complexNumber *ComplexNumberNode) Simplify() Expr {
+	if simplificationDepthExceeded(complexNumber) {
+		return complexNumber
+	}
 	if imaginaryNumber, ok := complexNumber.imaginaryPart.(*Num); ok && imaginaryNumber.IsZero() {
 		return complexNumber.realPart.Simplify()
 	}
@@ -26,11 +29,37 @@ func (complexNumber *ComplexNumberNode) Simplify() Expr {
 	}
 }
 
+func (complexNumber *ComplexNumberNode) Canonicalize() Expr {
+	return Canonicalize(complexNumber)
+}
+
 func (complexNumber *ComplexNumberNode) String() string {
+	if imaginaryNumber, ok := complexNumber.imaginaryPart.(*Num); ok {
+		if imaginaryNumber.IsZero() {
+			return complexNumber.realPart.String()
+		}
+		if imaginaryNumber.IsOne() {
+			return complexNumber.realPart.String() + " + i"
+		}
+		if imaginaryNumber.IsNegOne() {
+			return complexNumber.realPart.String() + " + -i"
+		}
+	}
 	return complexNumber.realPart.String() + " + " + complexNumber.imaginaryPart.String() + "*i"
 }
 
 func (complexNumber *ComplexNumberNode) LaTeX() string {
+	if imaginaryNumber, ok := complexNumber.imaginaryPart.(*Num); ok {
+		if imaginaryNumber.IsZero() {
+			return complexNumber.realPart.LaTeX()
+		}
+		if imaginaryNumber.IsOne() {
+			return complexNumber.realPart.LaTeX() + " + i"
+		}
+		if imaginaryNumber.IsNegOne() {
+			return complexNumber.realPart.LaTeX() + " - i"
+		}
+	}
 	return complexNumber.realPart.LaTeX() + " + " + complexNumber.imaginaryPart.LaTeX() + " i"
 }
 
@@ -65,6 +94,12 @@ func (complexNumber *ComplexNumberNode) toJSON() map[string]interface{} {
 		"imaginary": complexNumber.imaginaryPart.toJSON(),
 	}
 }
+
+// RealPart returns the symbolic real component.
+func (complexNumber *ComplexNumberNode) RealPart() Expr { return complexNumber.realPart }
+
+// ImaginaryPart returns the symbolic imaginary component.
+func (complexNumber *ComplexNumberNode) ImaginaryPart() Expr { return complexNumber.imaginaryPart }
 
 // AddComplexNumbers adds two symbolic complex numbers.
 func AddComplexNumbers(leftComplexNumber, rightComplexNumber *ComplexNumberNode) *ComplexNumberNode {

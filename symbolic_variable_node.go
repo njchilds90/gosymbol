@@ -7,6 +7,7 @@ type Assumptions struct {
 	Negative bool `json:"negative,omitempty"`
 	Integer  bool `json:"integer,omitempty"`
 	NonZero  bool `json:"non_zero,omitempty"`
+	Natural  bool `json:"natural,omitempty"`
 }
 
 // Sym is a symbolic variable.
@@ -24,6 +25,9 @@ func SAssume(name string, assumptions Assumptions) *Sym {
 }
 
 func (s *Sym) Simplify() Expr { return s }
+func (s *Sym) Canonicalize() Expr {
+	return Canonicalize(s)
+}
 func (s *Sym) String() string { return s.name }
 func (s *Sym) LaTeX() string  { return s.name }
 func (s *Sym) Eval() (*Num, bool) {
@@ -38,13 +42,14 @@ func (s *Sym) Name() string             { return s.name }
 func (s *Sym) Assumptions() Assumptions { return s.assumptions }
 func (s *Sym) toJSON() map[string]interface{} {
 	result := map[string]interface{}{"type": "sym", "name": s.name}
-	if s.assumptions.Real || s.assumptions.Positive || s.assumptions.Negative || s.assumptions.Integer || s.assumptions.NonZero {
+	if s.assumptions.Real || s.assumptions.Positive || s.assumptions.Negative || s.assumptions.Integer || s.assumptions.NonZero || s.assumptions.Natural {
 		result["assumptions"] = map[string]interface{}{
 			"real":     s.assumptions.Real,
 			"positive": s.assumptions.Positive,
 			"negative": s.assumptions.Negative,
 			"integer":  s.assumptions.Integer,
 			"non_zero": s.assumptions.NonZero,
+			"natural":  s.assumptions.Natural,
 		}
 	}
 	return result
@@ -64,12 +69,14 @@ func (s *Sym) Diff(varName string) Expr {
 
 // CreateEnhancedAssumptions constructs an assumptions bundle with the provided properties.
 func CreateEnhancedAssumptions(real, positive, negative, integer, nonZero bool) Assumptions {
+	natural := integer && (positive || nonZero)
 	return Assumptions{
 		Real:     real,
 		Positive: positive,
 		Negative: negative,
 		Integer:  integer,
-		NonZero:  nonZero,
+		NonZero:  nonZero || positive || negative,
+		Natural:  natural,
 	}
 }
 
@@ -84,6 +91,7 @@ func ApplyAssumptionsToSymbolicVariable(symbolicVariable *Sym, assumptions Assum
 	mergedAssumptions.Negative = mergedAssumptions.Negative || assumptions.Negative
 	mergedAssumptions.Integer = mergedAssumptions.Integer || assumptions.Integer
 	mergedAssumptions.NonZero = mergedAssumptions.NonZero || assumptions.NonZero || assumptions.Positive || assumptions.Negative
+	mergedAssumptions.Natural = mergedAssumptions.Natural || assumptions.Natural || (mergedAssumptions.Integer && mergedAssumptions.Positive)
 	return &Sym{name: symbolicVariable.name, assumptions: mergedAssumptions}
 }
 
@@ -100,4 +108,19 @@ func SymbolicVariableIsKnownInteger(symbolicVariable *Sym) bool {
 // SymbolicVariableIsKnownNonZero reports whether the symbolic variable is assumed to be nonzero.
 func SymbolicVariableIsKnownNonZero(symbolicVariable *Sym) bool {
 	return symbolicVariable != nil && (symbolicVariable.assumptions.NonZero || symbolicVariable.assumptions.Positive || symbolicVariable.assumptions.Negative)
+}
+
+// SymbolicVariableIsKnownPositive reports whether the symbolic variable is assumed positive.
+func SymbolicVariableIsKnownPositive(symbolicVariable *Sym) bool {
+	return symbolicVariable != nil && symbolicVariable.assumptions.Positive
+}
+
+// SymbolicVariableIsKnownNegative reports whether the symbolic variable is assumed negative.
+func SymbolicVariableIsKnownNegative(symbolicVariable *Sym) bool {
+	return symbolicVariable != nil && symbolicVariable.assumptions.Negative
+}
+
+// SymbolicVariableIsKnownNatural reports whether the symbolic variable is assumed natural-valued.
+func SymbolicVariableIsKnownNatural(symbolicVariable *Sym) bool {
+	return symbolicVariable != nil && symbolicVariable.assumptions.Natural
 }

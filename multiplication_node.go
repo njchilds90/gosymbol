@@ -14,6 +14,9 @@ type Mul struct{ factors []Expr }
 func MulOf(factors ...Expr) Expr { return (&Mul{factors: factors}).Simplify() }
 
 func (m *Mul) Simplify() Expr {
+	if simplificationDepthExceeded(m) {
+		return m
+	}
 	flat := make([]Expr, 0, len(m.factors))
 	for _, f := range m.factors {
 		s := f.Simplify()
@@ -21,6 +24,9 @@ func (m *Mul) Simplify() Expr {
 			flat = append(flat, inner.factors...)
 		} else {
 			flat = append(flat, s)
+		}
+		if simplificationWidthExceeded(len(flat)) {
+			return &Mul{factors: flat}
 		}
 	}
 	coeff := N(1)
@@ -94,6 +100,8 @@ func (m *Mul) Simplify() Expr {
 	}
 	return &Mul{factors: append([]Expr{coeff}, others...)}
 }
+
+func (m *Mul) Canonicalize() Expr { return Canonicalize(m) }
 
 func (m *Mul) String() string {
 	if len(m.factors) == 0 {

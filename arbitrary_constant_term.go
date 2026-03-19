@@ -18,6 +18,7 @@ func CreateArbitraryIntegrationConstant() *ConstantNode {
 }
 
 func (constantNode *ConstantNode) Simplify() Expr        { return constantNode }
+func (constantNode *ConstantNode) Canonicalize() Expr    { return Canonicalize(constantNode) }
 func (constantNode *ConstantNode) String() string        { return constantNode.name }
 func (constantNode *ConstantNode) LaTeX() string         { return constantNode.name }
 func (constantNode *ConstantNode) Sub(string, Expr) Expr { return constantNode }

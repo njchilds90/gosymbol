@@ -14,6 +14,9 @@ type Add struct{ terms []Expr }
 func AddOf(terms ...Expr) Expr { return (&Add{terms: terms}).Simplify() }
 
 func (a *Add) Simplify() Expr {
+	if simplificationDepthExceeded(a) {
+		return a
+	}
 	flat := make([]Expr, 0, len(a.terms))
 	for _, t := range a.terms {
 		s := t.Simplify()
@@ -21,6 +24,9 @@ func (a *Add) Simplify() Expr {
 			flat = append(flat, inner.terms...)
 		} else {
 			flat = append(flat, s)
+		}
+		if simplificationWidthExceeded(len(flat)) {
+			return &Add{terms: flat}
 		}
 	}
 	numAccum := N(0)
@@ -70,6 +76,8 @@ func (a *Add) Simplify() Expr {
 	}
 	return &Add{terms: result}
 }
+
+func (a *Add) Canonicalize() Expr { return Canonicalize(a) }
 
 func (a *Add) String() string {
 	if len(a.terms) == 0 {

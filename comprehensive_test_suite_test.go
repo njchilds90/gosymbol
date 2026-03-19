@@ -1,6 +1,7 @@
 package gosymbol_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -1125,6 +1126,22 @@ func TestEnhancedAssumptionsHelpers(t *testing.T) {
 	}
 }
 
+func TestEnhancedAssumptionsNaturalAndSigns(t *testing.T) {
+	symbolicVariable := gosymbol.ApplyAssumptionsToSymbolicVariable(
+		gosymbol.S("n"),
+		gosymbol.CreateEnhancedAssumptions(true, true, false, true, true),
+	)
+	if !gosymbol.SymbolicVariableIsKnownPositive(symbolicVariable) {
+		t.Fatal("expected positive assumption")
+	}
+	if gosymbol.SymbolicVariableIsKnownNegative(symbolicVariable) {
+		t.Fatal("did not expect negative assumption")
+	}
+	if !gosymbol.SymbolicVariableIsKnownNatural(symbolicVariable) {
+		t.Fatal("expected natural assumption")
+	}
+}
+
 func TestPerformRischTranscendentalIntegration(t *testing.T) {
 	result, ok := gosymbol.PerformRischTranscendentalIntegration(
 		gosymbol.MulOf(gosymbol.LnOf(gosymbol.S("x")), gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(-1))),
@@ -1135,6 +1152,19 @@ func TestPerformRischTranscendentalIntegration(t *testing.T) {
 	}
 	if got := gosymbol.String(result); !strings.Contains(got, "ln(x)^2") {
 		t.Fatalf("unexpected transcendental integral result: %s", got)
+	}
+}
+
+func TestPerformRischTranscendentalIntegrationWithContextCancellation(t *testing.T) {
+	operationContext, cancelOperation := context.WithCancel(context.Background())
+	cancelOperation()
+
+	result, ok, err := gosymbol.PerformRischTranscendentalIntegrationWithContext(operationContext, gosymbol.Parse("ln(x)/x"), "x")
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if ok || result != nil {
+		t.Fatal("expected canceled integration to return no result")
 	}
 }
 
@@ -1169,6 +1199,35 @@ func TestPatternRewriteAndExpansions(t *testing.T) {
 	}
 }
 
+func TestCanonicalizeMethodAndDepthLimit(t *testing.T) {
+	expression := gosymbol.Parse("sin(x)^2 + cos(x)^2")
+	if got := expression.Canonicalize().String(); got != "1" {
+		t.Fatalf("expected canonicalized expression 1, got %s", got)
+	}
+
+	previousMaximumDepth := gosymbol.MaxExpressionDepth
+	gosymbol.MaxExpressionDepth = 2
+	t.Cleanup(func() { gosymbol.MaxExpressionDepth = previousMaximumDepth })
+
+	deepExpression := gosymbol.Parse("sin(sin(sin(x)))")
+	if got := deepExpression.Simplify().String(); got != "sin(sin(sin(x)))" {
+		t.Fatalf("expected depth-limited simplification to preserve expression, got %s", got)
+	}
+}
+
+func TestPiecewiseSimplifyNormalization(t *testing.T) {
+	expression := gosymbol.CreatePiecewiseExpression(
+		[]gosymbol.PiecewiseCase{
+			{Condition: " false ", Expression: gosymbol.N(1)},
+			{Condition: " otherwise ", Expression: gosymbol.N(2)},
+		},
+		nil,
+	)
+	if got := gosymbol.String(expression.Simplify()); got != "2" {
+		t.Fatalf("expected normalized piecewise simplification to collapse to default, got %s", got)
+	}
+}
+
 func TestComputeGroebnerBasisAndComplexNumbers(t *testing.T) {
 	basis := gosymbol.ComputeGroebnerBasis(
 		[]gosymbol.Expr{
@@ -1185,5 +1244,15 @@ func TestComputeGroebnerBasisAndComplexNumbers(t *testing.T) {
 	product := gosymbol.MultiplyComplexNumbers(imaginaryUnit, imaginaryUnit)
 	if got := gosymbol.String(product); !strings.Contains(got, "-1") {
 		t.Fatalf("unexpected complex multiplication result: %s", got)
+	}
+}
+
+func TestComputeGroebnerBasisWithContextCancellation(t *testing.T) {
+	operationContext, cancelOperation := context.WithCancel(context.Background())
+	cancelOperation()
+
+	basis := gosymbol.ComputeGroebnerBasisWithContext(operationContext, []gosymbol.Expr{gosymbol.Parse("x*y - 1")}, []string{"x", "y"})
+	if basis != nil {
+		t.Fatalf("expected canceled Groebner computation to stop without a basis, got %v", basis)
 	}
 }

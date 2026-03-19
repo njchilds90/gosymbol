@@ -13,6 +13,7 @@ import "fmt"
 // Expr is the common interface implemented by every symbolic expression node.
 type Expr interface {
 	Simplify() Expr
+	Canonicalize() Expr
 	String() string
 	LaTeX() string
 	Sub(varName string, value Expr) Expr
@@ -22,6 +23,12 @@ type Expr interface {
 	exprType() string
 	toJSON() map[string]interface{}
 }
+
+// MaxExpressionDepth bounds recursive expression growth during simplification.
+var MaxExpressionDepth = 128
+
+// MaxFlattenedOperandCount bounds additive and multiplicative flattening work.
+var MaxFlattenedOperandCount = 4096
 
 // ============================================================
 // Equation
@@ -50,6 +57,7 @@ type BigO struct {
 func OTerm(varName string, order int) *BigO { return &BigO{varName: varName, order: order} }
 
 func (o *BigO) Simplify() Expr        { return o }
+func (o *BigO) Canonicalize() Expr    { return Canonicalize(o) }
 func (o *BigO) String() string        { return fmt.Sprintf("O(%s^%d)", o.varName, o.order) }
 func (o *BigO) LaTeX() string         { return fmt.Sprintf("\\mathcal{O}(%s^{%d})", o.varName, o.order) }
 func (o *BigO) Sub(string, Expr) Expr { return o }
@@ -221,4 +229,27 @@ func DeepSimplify(e Expr) Expr {
 		curr = TrigSimplify(curr).Simplify()
 	}
 	return curr
+}
+
+// ExpressionDepth returns the maximum node depth of the expression tree.
+func ExpressionDepth(expression Expr) int {
+	if expression == nil {
+		return 0
+	}
+	maximumChildDepth := 0
+	for _, childExpression := range expressionChildren(expression) {
+		childDepth := ExpressionDepth(childExpression)
+		if childDepth > maximumChildDepth {
+			maximumChildDepth = childDepth
+		}
+	}
+	return maximumChildDepth + 1
+}
+
+func simplificationDepthExceeded(expression Expr) bool {
+	return MaxExpressionDepth > 0 && ExpressionDepth(expression) > MaxExpressionDepth
+}
+
+func simplificationWidthExceeded(count int) bool {
+	return MaxFlattenedOperandCount > 0 && count > MaxFlattenedOperandCount
 }

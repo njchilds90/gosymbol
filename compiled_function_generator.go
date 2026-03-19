@@ -107,6 +107,8 @@ func expressionChildren(expression Expr) []Expr {
 			children = append(children, typedExpression.DefaultExpression)
 		}
 		return children
+	case *ComplexNumberNode:
+		return []Expr{typedExpression.RealPart(), typedExpression.ImaginaryPart()}
 	default:
 		return nil
 	}

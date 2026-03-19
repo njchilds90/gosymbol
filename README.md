@@ -36,18 +36,23 @@ go get github.com/njchilds90/gosymbol
 
 ---
 
-## Added in this PR
+## Implemented Features
 
-- `PerformRischTranscendentalIntegration`
-- `SolveFirstOrderLinearOrdinaryDifferentialEquation`
-- `RewriteExpressionByPatternRules`
-- `ComputeGroebnerBasis`
-- `CreateComplexNumber`
-- `CreateBoxedAsciiPrettyPrint`
-- `GenerateRunnableGoFunctionSource`
-- `CreateEnhancedAssumptions`
-- `ExpandTrigonometric`
-- `ExpandLogarithmic`
+| Capability | Status | Primary entry points |
+|------|--------|--------|
+| Deterministic simplification and canonicalization | ✅ | `Simplify`, `DeepSimplify`, `Canonicalize`, `Expr.Canonicalize()` |
+| Differentiation, series, and definite integration | ✅ | `DifferentiateExpression`, `TaylorSeries`, `TaylorSeriesWithContext`, `DefiniteIntegrate` |
+| Rule-based and transcendental integration | ✅ | `Integrate`, `IntegrateWithConstant`, `PerformRischTranscendentalIntegration`, `PerformRischTranscendentalIntegrationWithContext` |
+| Pattern rewriting and polynomial tooling | ✅ | `RewriteExpressionByPatternRules`, `FactorExpression`, `ComputeGroebnerBasis`, `ComputeGroebnerBasisWithContext` |
+| Trigonometric and logarithmic expansion | ✅ | `TrigSimplify`, `ExpandTrigonometric`, `ExpandLogarithmic` |
+| Symbolic matrices | ✅ | `CreateSymbolicMatrix`, `MatAdd`, `MatMul`, `Det`, `Inverse` |
+| Piecewise expressions | ✅ | `CreatePiecewiseExpression` |
+| Complex numbers | ✅ | `CreateComplexNumber`, `CreateImaginaryUnit`, `AddComplexNumbers`, `MultiplyComplexNumbers` |
+| Assumptions-aware symbols | ✅ | `CreateEnhancedAssumptions`, `ApplyAssumptionsToSymbolicVariable` |
+| ASCII and boxed pretty printing | ✅ | `AsciiPrettyPrint`, `CreateBoxedAsciiPrettyPrint` |
+| Lambdify and runnable Go generation | ✅ | `LambdifyToGoFunction`, `GenerateRunnableGoFunctionSource` |
+| MCP and standalone HTTP wrappers | ✅ | `HandleToolCall`, `MCPToolSpec`, `cmd/mcp-server`, `cmd/standalone_model_context_protocol_http_server` |
+| WebAssembly browser interop | ✅ | `RegisterWebAssemblyExample` |
 
 ---
 
@@ -56,29 +61,31 @@ go get github.com/njchilds90/gosymbol
 ```go
 import gosymbol "github.com/njchilds90/gosymbol"
 
-x := gosymbol.S("x")
+variableX := gosymbol.CreateSymbolicVariable("x")
+expression := gosymbol.Parse("sin(x)^2 + cos(x)^2 + 3*x^2 + 1")
 
-// Parse infix or build expressions directly.
-expr := gosymbol.Parse("3*x^2 + 1")
+fmt.Println(gosymbol.String(gosymbol.Canonicalize(expression))) // 3*x^2 + 2
+fmt.Println(gosymbol.LaTeX(expression))
 
-fmt.Println(gosymbol.String(expr))  // 3*x^2 + 1
-fmt.Println(gosymbol.LaTeX(expr))   // 3 x^{2} + 1
+derivative := gosymbol.DifferentiateExpression(expression, "x")
+fmt.Println(gosymbol.String(derivative)) // 6*x
 
-// Differentiate
-d := gosymbol.Diff(expr, "x")
-fmt.Println(gosymbol.String(d))     // 6*x
+integral, ok := gosymbol.PerformRischTranscendentalIntegration(gosymbol.Parse("ln(x)/x"), "x")
+fmt.Println(ok, gosymbol.String(integral)) // true 1/2*ln(x)^2
 
-// Integrate
-integral, ok := gosymbol.Integrate(x, "x")
-fmt.Println(gosymbol.String(integral)) // 1/2*x^2
+matrix := gosymbol.CreateSymbolicMatrixFromEntries(2, 2, []gosymbol.Expr{
+	gosymbol.N(1), variableX,
+	gosymbol.N(0), gosymbol.N(1),
+})
+fmt.Println(matrix.Det().String()) // 1
 
-// Solve
-res := gosymbol.SolveLinear(gosymbol.N(2), gosymbol.N(-6))
-fmt.Println(gosymbol.String(res.Solutions[0])) // 3
+complexValue := gosymbol.CreateComplexNumber(gosymbol.N(2), gosymbol.N(1))
+fmt.Println(complexValue.String()) // 2 + i
 
-// Substitute
-v := gosymbol.Sub(expr, "x", gosymbol.N(2))
-fmt.Println(gosymbol.String(v))     // 13
+generatedSource, _ := gosymbol.GenerateRunnableGoFunctionSource(gosymbol.Parse("x^2 + 1"), "EvaluateSquarePlusOne")
+fmt.Println(generatedSource)
+
+fmt.Println(gosymbol.CreateBoxedAsciiPrettyPrint(expression))
 ```
 
 ---
@@ -95,21 +102,24 @@ multiplication_node.go                      # Product node + factor combination
 power_node.go                               # Power node
 function_node.go                            # Function node family (trig/hyperbolic/inverses)
 symbolic_calculus_operations.go             # Differentiate, integrate, Taylor, definite integration
-symbolic_algebra_operations.go              # Expand, factor, partial fractions, polynomials
+symbolic_algebra_operations.go              # Expand, factor, pattern rewriting, Gröbner bases, polynomials
+symbolic_matrix_operations.go               # Matrix helpers: addition, multiplication, determinant, inverse
 equation_solving_operations.go              # Linear/quadratic/system/equation solvers
 javascript_object_notation_serialization.go # Structured serialization
-latex_string_output.go                      # LaTeX-oriented helpers
+latex_string_output.go                      # LaTeX and boxed ASCII pretty-print helpers
 model_context_protocol_integration.go       # Tool dispatch and schema output
 infix_string_parser.go                      # String parser for infix expressions
-symbolic_matrix_operations.go               # Matrix implementation and aliases
 piecewise_conditional_expression.go         # Piecewise symbolic expressions
-compiled_function_generator.go              # Native closure generation and pretty printing
+compiled_function_generator.go              # Native closure generation and runnable Go source output
+complex_number_node.go                      # Symbolic complex-number node
 backward_compatibility_aliases.go           # Short-name compatibility layer
 arbitrary_constant_term.go                  # Explicit indefinite integration constant
 symbolic_mathematics_errors.go              # Structured symbolic errors
 cmd/mcp-server/main.go                      # Optional standalone HTTP server
+cmd/standalone_model_context_protocol_http_server/main.go # Simple net/http JSON MCP wrapper
+wasm_build_example.go                       # js/wasm browser registration helper
 examples/main.go                            # Runnable usage demo
-comprehensive_test_suite_test.go                 # Tests and benchmarks
+comprehensive_test_suite_test.go            # Tests and benchmarks
 .github/workflows/ci.yml                    # CI: test/race/gofmt/vet/coverage
 ```
 
@@ -203,6 +213,42 @@ fmt.Println(gosymbol.String(gosymbol.DeepSimplify(expr))) // 1
 
 xPos := gosymbol.SAssume("x", gosymbol.Assumptions{Real: true, Positive: true})
 fmt.Println(gosymbol.String(gosymbol.AbsOf(xPos))) // x
+
+assumptions := gosymbol.CreateEnhancedAssumptions(true, true, false, true, true)
+xNatural := gosymbol.ApplyAssumptionsToSymbolicVariable(gosymbol.S("n"), assumptions)
+fmt.Println(gosymbol.SymbolicVariableIsKnownNatural(xNatural)) // true
+```
+
+### Matrix, complex, and piecewise helpers
+
+```go
+piecewise := gosymbol.CreatePiecewiseExpression(
+	[]gosymbol.PiecewiseCase{
+		{Condition: "x > 0", Expression: gosymbol.S("x")},
+		{Condition: "otherwise", Expression: gosymbol.N(0)},
+	},
+	nil,
+)
+fmt.Println(piecewise.String())
+
+complexProduct := gosymbol.MultiplyComplexNumbers(
+	gosymbol.CreateImaginaryUnit(),
+	gosymbol.CreateImaginaryUnit(),
+)
+fmt.Println(complexProduct.String()) // -1
+```
+
+### Generated Go source and context-aware helpers
+
+```go
+source, _ := gosymbol.GenerateRunnableGoFunctionSource(gosymbol.Parse("exp(x) + 1"), "EvaluateExpPlusOne")
+fmt.Println(source)
+
+basis := gosymbol.ComputeGroebnerBasisWithContext(context.Background(), []gosymbol.Expr{
+	gosymbol.Parse("x*y - 1"),
+	gosymbol.Parse("y - 1"),
+}, []string{"x", "y"})
+fmt.Println(len(basis) > 0) // true
 ```
 
 ## Rename Mapping
@@ -232,7 +278,7 @@ fmt.Println(gosymbol.String(gosymbol.AbsOf(xPos))) // x
 ## Migration Notes
 
 The package keeps the existing short compatibility surface (`N`, `S`, `Diff`, `Eq`, and related helpers) so existing callers continue to compile.
-It now also exposes a descriptive full-name surface such as `CreateRationalNumber`, `CreateSymbolicVariable`, `DifferentiateExpression`, `SymbolicIntegration`, `FactorExpression`, and `AsciiPrettyPrint` for teams that prefer more explicit APIs.
+It now also exposes a descriptive full-name surface such as `CreateRationalNumber`, `CreateSymbolicVariable`, `DifferentiateExpression`, `SymbolicIntegration`, `FactorExpression`, `CreateBoxedAsciiPrettyPrint`, `GenerateRunnableGoFunctionSource`, and `CreateComplexNumber` for teams that prefer more explicit APIs.
 
 ```go
 expression := gosymbol.CreateAddition(
@@ -453,6 +499,36 @@ fmt.Println(resp.Error)  // error if failed
 
 Recent additions include exact-content polynomial/rational factoring, one-sided and infinity-aware limits with basic L'Hôpital support, and broader inverse/hyperbolic calculus support such as `asin`, `acos`, `atan`, `asinh`, `acosh`, and `atanh`.
 
+### Standalone HTTP MCP wrappers
+
+Two runnable entry points are provided:
+
+- `cmd/mcp-server/main.go` for the compact server wrapper.
+- `cmd/standalone_model_context_protocol_http_server/main.go` for a minimal `net/http` JSON server with:
+  - `POST /tool` for tool execution,
+  - `GET /tools` for the tool schema,
+  - `GET /healthz` for health checks.
+
+```bash
+go run ./cmd/standalone_model_context_protocol_http_server
+curl -s http://127.0.0.1:8081/healthz
+curl -s http://127.0.0.1:8081/tools
+curl -s http://127.0.0.1:8081/tool \
+  -H 'content-type: application/json' \
+  -d '{"tool":"simplify","params":{"expr":"sin(x)^2 + cos(x)^2"}}'
+```
+
+### WebAssembly build target
+
+The browser interop example in `wasm_build_example.go` is guarded by `//go:build js && wasm` and registers `simplifyExpressionWithGoSymbol` in JavaScript.
+
+```bash
+GOOS=js GOARCH=wasm go build -o gosymbol.wasm
+cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" .
+```
+
+Then load `wasm_exec.js` in a page, instantiate `gosymbol.wasm`, and call `simplifyExpressionWithGoSymbol("sin(x)^2 + cos(x)^2")`.
+
 ### Get the MCP Tool Schema
 
 ```go
@@ -481,66 +557,42 @@ You have access to a symbolic math engine. Build expression trees as JSON and ca
 ---
 ## Architecture
 
+```text
+core_expression_interface.go
+├── Expr interface (Simplify, Canonicalize, String, LaTeX, Sub, Diff, Eval, Equal)
+├── canonicalization and simplification guardrails
+├── trigonometric identity passes
+└── Equation / BigO support
+
+symbolic_calculus_operations.go
+├── Diff / Diff2 / DiffN
+├── Integrate / IntegrateWithConstant
+├── PerformRischTranscendentalIntegration
+├── TaylorSeries / TaylorSeriesWithContext
+└── DefiniteIntegrate
+
+symbolic_algebra_operations.go
+├── Expand / Canonicalize / Collect / Cancel
+├── ExpandTrigonometric / ExpandLogarithmic
+├── RewriteExpressionByPatternRules
+├── FactorExpression
+└── ComputeGroebnerBasis / ComputeGroebnerBasisWithContext
+
+symbolic_matrix_operations.go
+├── MatAdd / MatMul
+├── Det / Inverse
+└── Jacobian / Hessian
+
+compiled_function_generator.go
+├── LambdifyToGoFunction
+├── GenerateRunnableGoFunctionSource
+└── AsciiPrettyPrint / boxed rendering
+
+model_context_protocol_integration.go
+├── ToolRequest / ToolResponse
+├── HandleToolCall
+└── MCPToolSpec
 ```
-gosymbol.go
-├── Expr interface (Simplify, String, LaTeX, Sub, Diff, Eval, Equal)
-├── Core nodes
-│   ├── Num    — exact rational (math/big.Rat)
-│   ├── Sym    — symbolic variable
-│   ├── Add    — sum (flattens, combines like terms)
-│   ├── Mul    — product (flattens, collects numeric coefficient)
-│   ├── Pow    — base^exp (numeric evaluation for small integer exponents)
-│   └── Func   — sin, cos, tan, exp, ln, abs
-├── Calculus
-│   ├── Diff / Diff2 / DiffN
-│   ├── Integrate (rule-based symbolic)
-│   ├── DefiniteIntegrate (Gaussian quadrature)
-│   └── TaylorSeries
-├── Algebra
-│   ├── Expand (distributive expansion)
-│   ├── FreeSymbols
-│   ├── Degree
-│   └── PolyCoeffs
-├── Solvers
-│   ├── SolveLinear
-│   ├── SolveQuadratic
-│   └── SolveLinearSystem2x2
-├── Equation
-├── Serialization
-│   ├── ToJSON / FromJSON
-│   └── LaTeX
-└── AI/MCP Interface
-    ├── ToolRequest / ToolResponse
-    ├── HandleToolCall
-    └── MCPToolSpec
-```
-
----
-## Limitations
-
-- Matrix support is intentionally small and focused on deterministic symbolic helpers
-- No Risch integration algorithm (transcendental integrals)
-- No pattern matching engine
-- No Gröbner bases
-- No complex number arithmetic
-
-This is a **minimal symbolic kernel**. See the [Future Directions](#future-directions) section for the roadmap.
-
----
-
-## Future Directions
-
-Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-- [ ] Symbolic matrix operations
-- [ ] `pprint()` ASCII pretty-printer
-- [ ] MCP server wrapper (standalone HTTP server)
-- [ ] WASM build target
-- [ ] Assumptions system (positive, integer, real, etc.)
-- [ ] Piecewise expressions
-- [ ] Trigonometric identities
-- [ ] Expand via `expand_trig`, `expand_log`
-- [ ] `Lambdify` → compiled Go function
 
 ---
 

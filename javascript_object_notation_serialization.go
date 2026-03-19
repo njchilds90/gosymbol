@@ -110,6 +110,10 @@ func FromJSON(data map[string]interface{}) (Expr, error) {
 			sym.assumptions = Assumptions{
 				Real:     boolValue(rawAssumptions["real"]),
 				Positive: boolValue(rawAssumptions["positive"]),
+				Negative: boolValue(rawAssumptions["negative"]),
+				Integer:  boolValue(rawAssumptions["integer"]),
+				NonZero:  boolValue(rawAssumptions["non_zero"]),
+				Natural:  boolValue(rawAssumptions["natural"]),
 			}
 		}
 		return sym, nil

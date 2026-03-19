@@ -20,21 +20,45 @@ func CreatePiecewiseExpression(cases []PiecewiseCase, defaultExpression Expr) *P
 }
 
 func (piecewiseExpression *PiecewiseExpression) Simplify() Expr {
-	simplifiedCases := make([]PiecewiseCase, len(piecewiseExpression.Cases))
-	for caseIndex, piecewiseCase := range piecewiseExpression.Cases {
-		simplifiedCases[caseIndex] = PiecewiseCase{
-			Condition:  piecewiseCase.Condition,
-			Expression: piecewiseCase.Expression.Simplify(),
+	if simplificationDepthExceeded(piecewiseExpression) {
+		return piecewiseExpression
+	}
+	simplifiedCases := make([]PiecewiseCase, 0, len(piecewiseExpression.Cases))
+	for _, piecewiseCase := range piecewiseExpression.Cases {
+		normalizedCondition := strings.TrimSpace(piecewiseCase.Condition)
+		if normalizedCondition == "" || strings.EqualFold(normalizedCondition, "false") || normalizedCondition == "0" {
+			continue
 		}
+		if piecewiseCase.Expression == nil {
+			continue
+		}
+		simplifiedExpression := piecewiseCase.Expression.Simplify()
+		if strings.EqualFold(normalizedCondition, "true") || strings.EqualFold(normalizedCondition, "otherwise") {
+			return simplifiedExpression
+		}
+		simplifiedCases = append(simplifiedCases, PiecewiseCase{
+			Condition:  normalizedCondition,
+			Expression: simplifiedExpression,
+		})
 	}
 	defaultExpression := Expr(nil)
 	if piecewiseExpression.DefaultExpression != nil {
 		defaultExpression = piecewiseExpression.DefaultExpression.Simplify()
 	}
+	if len(simplifiedCases) == 0 && defaultExpression != nil {
+		return defaultExpression
+	}
+	if len(simplifiedCases) == 1 && defaultExpression != nil && simplifiedCases[0].Expression.Equal(defaultExpression) {
+		return defaultExpression
+	}
 	return &PiecewiseExpression{
 		Cases:             simplifiedCases,
 		DefaultExpression: defaultExpression,
 	}
+}
+
+func (piecewiseExpression *PiecewiseExpression) Canonicalize() Expr {
+	return Canonicalize(piecewiseExpression)
 }
 
 func (piecewiseExpression *PiecewiseExpression) String() string {

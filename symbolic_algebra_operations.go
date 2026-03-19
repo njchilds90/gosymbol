@@ -1,6 +1,7 @@
 package gosymbol
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"sort"
@@ -11,8 +12,8 @@ import (
 // Canonicalization, Collect, Cancel
 // ============================================================
 
-// Canonicalize expands and fully simplifies an expression.
-func Canonicalize(e Expr) Expr { return Expand(e).Simplify() }
+// Canonicalize expands and deeply simplifies an expression.
+func Canonicalize(e Expr) Expr { return DeepSimplify(Expand(e).Simplify()) }
 
 // Collect groups terms by powers of varName.
 func Collect(expr Expr, varName string) Expr {
@@ -1081,11 +1082,22 @@ func ExpandLogarithmic(expression Expr) Expr {
 
 // ComputeGroebnerBasis computes a small Buchberger basis for exact multivariate polynomials.
 func ComputeGroebnerBasis(polynomials []Expr, variableNames []string) []Expr {
+	return ComputeGroebnerBasisWithContext(context.Background(), polynomials, variableNames)
+}
+
+// ComputeGroebnerBasisWithContext computes a small Buchberger basis with cancellation support.
+func ComputeGroebnerBasisWithContext(operationContext context.Context, polynomials []Expr, variableNames []string) []Expr {
+	if operationContext != nil && operationContext.Err() != nil {
+		return nil
+	}
 	if len(polynomials) == 0 || len(variableNames) == 0 {
 		return nil
 	}
 	basis := make([]map[string]*Num, 0, len(polynomials))
 	for _, polynomial := range polynomials {
+		if operationContext != nil && operationContext.Err() != nil {
+			break
+		}
 		polynomialTerms, converted := convertExpressionToMultivariatePolynomial(polynomial, variableNames)
 		if !converted {
 			continue
@@ -1094,9 +1106,15 @@ func ComputeGroebnerBasis(polynomials []Expr, variableNames []string) []Expr {
 	}
 	changed := true
 	for changed {
+		if operationContext != nil && operationContext.Err() != nil {
+			return nil
+		}
 		changed = false
 		for leftIndex := 0; leftIndex < len(basis); leftIndex++ {
 			for rightIndex := leftIndex + 1; rightIndex < len(basis); rightIndex++ {
+				if operationContext != nil && operationContext.Err() != nil {
+					return nil
+				}
 				sPolynomial := computeSPolynomial(basis[leftIndex], basis[rightIndex], variableNames)
 				reducedPolynomial := reduceMultivariatePolynomial(sPolynomial, basis, variableNames)
 				if len(reducedPolynomial) == 0 {

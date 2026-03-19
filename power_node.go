@@ -11,6 +11,9 @@ type Pow struct{ base, exp Expr }
 func PowOf(base, exp Expr) Expr { return (&Pow{base: base, exp: exp}).Simplify() }
 
 func (p *Pow) Simplify() Expr {
+	if simplificationDepthExceeded(p) {
+		return p
+	}
 	base := p.base.Simplify()
 	exp := p.exp.Simplify()
 
@@ -77,6 +80,8 @@ func (p *Pow) Simplify() Expr {
 	}
 	return &Pow{base: base, exp: exp}
 }
+
+func (p *Pow) Canonicalize() Expr { return Canonicalize(p) }
 
 func (p *Pow) String() string {
 	baseStr := p.base.String()

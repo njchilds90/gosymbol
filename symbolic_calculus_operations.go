@@ -1,6 +1,9 @@
 package gosymbol
 
-import "math"
+import (
+	"context"
+	"math"
+)
 
 // ============================================================
 // Integration (rule-based symbolic + numerical)
@@ -574,11 +577,56 @@ func MaclaurinSeriesWithRemainder(expr Expr, varName string, order int) Expr {
 	return TaylorSeriesWithRemainder(expr, varName, N(0), order)
 }
 
+func factorialNumber(order int) *Num {
+	factorial := N(1)
+	for factor := 2; factor <= order; factor++ {
+		factorial = numMul(factorial, N(int64(factor)))
+	}
+	return factorial
+}
+
+// TaylorSeriesWithContext computes a Taylor series while honoring context cancellation.
+func TaylorSeriesWithContext(operationContext context.Context, expr Expr, varName string, a Expr, order int) (Expr, error) {
+	terms := make([]Expr, 0, order+1)
+	current := expr
+	for derivativeOrder := 0; derivativeOrder <= order; derivativeOrder++ {
+		if operationContext != nil && operationContext.Err() != nil {
+			return nil, operationContext.Err()
+		}
+		factorial := factorialNumber(derivativeOrder)
+		coefficient := MulOf(current.Sub(varName, a), PowOf(factorial, N(-1))).Simplify()
+		if numericCoefficient, isNumber := coefficient.(*Num); isNumber && numericCoefficient.IsZero() {
+			current = Diff(current, varName)
+			continue
+		}
+		switch derivativeOrder {
+		case 0:
+			terms = append(terms, coefficient)
+		case 1:
+			terms = append(terms, MulOf(coefficient, AddOf(S(varName), MulOf(N(-1), a))).Simplify())
+		default:
+			terms = append(terms, MulOf(coefficient, PowOf(AddOf(S(varName), MulOf(N(-1), a)), N(int64(derivativeOrder)))).Simplify())
+		}
+		current = Diff(current, varName)
+	}
+	return AddOf(terms...).Simplify(), nil
+}
+
 // PerformRischTranscendentalIntegration attempts a deterministic transcendental integration pass
 // before falling back to the existing rule-based integrator.
 func PerformRischTranscendentalIntegration(expression Expr, variableName string) (Expr, bool) {
+	result, success, _ := PerformRischTranscendentalIntegrationWithContext(context.Background(), expression, variableName)
+	return result, success
+}
+
+// PerformRischTranscendentalIntegrationWithContext attempts a deterministic transcendental
+// integration pass and allows cancellation for longer-running callers.
+func PerformRischTranscendentalIntegrationWithContext(operationContext context.Context, expression Expr, variableName string) (Expr, bool, error) {
+	if operationContext != nil && operationContext.Err() != nil {
+		return nil, false, operationContext.Err()
+	}
 	if integratedExpression, integrationSucceeded := Integrate(expression, variableName); integrationSucceeded {
-		return integratedExpression, true
+		return integratedExpression, true, nil
 	}
 	switch typedExpression := expression.Simplify().(type) {
 	case *Mul:
@@ -587,7 +635,7 @@ func PerformRischTranscendentalIntegration(expression Expr, variableName string)
 				if inverseVariablePower, isPower := typedExpression.factors[1].(*Pow); isPower {
 					if symbolicVariable, isVariable := inverseVariablePower.base.(*Sym); isVariable && symbolicVariable.name == variableName {
 						if exponentNumber, isNumber := inverseVariablePower.exp.(*Num); isNumber && exponentNumber.IsNegOne() {
-							return MulOf(F(1, 2), PowOf(LnOf(S(variableName)), N(2))).Simplify(), true
+							return MulOf(F(1, 2), PowOf(LnOf(S(variableName)), N(2))).Simplify(), true, nil
 						}
 					}
 				}
@@ -597,12 +645,12 @@ func PerformRischTranscendentalIntegration(expression Expr, variableName string)
 		if functionExpression, isFunction := typedExpression.base.(*Func); isFunction && functionExpression.name == "exp" {
 			if exponentNumber, isNumber := typedExpression.exp.(*Num); isNumber && exponentNumber.IsInteger() && exponentNumber.val.Num().Int64() == 2 {
 				if linearCoefficient, isLinear := linearArgumentCoefficient(functionExpression.arg, variableName); isLinear {
-					return MulOf(numRecip(numMul(N(2), linearCoefficient)), PowOf(ExpOf(functionExpression.arg), N(2))).Simplify(), true
+					return MulOf(numRecip(numMul(N(2), linearCoefficient)), PowOf(ExpOf(functionExpression.arg), N(2))).Simplify(), true, nil
 				}
 			}
 		}
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 // SolveFirstOrderLinearOrdinaryDifferentialEquation solves y' + p(x) y = q(x) by integrating factor.
