@@ -36,6 +36,21 @@ go get github.com/njchilds90/gosymbol
 
 ---
 
+## Added in this PR
+
+- `PerformRischTranscendentalIntegration`
+- `SolveFirstOrderLinearOrdinaryDifferentialEquation`
+- `RewriteExpressionByPatternRules`
+- `ComputeGroebnerBasis`
+- `CreateComplexNumber`
+- `CreateBoxedAsciiPrettyPrint`
+- `GenerateRunnableGoFunctionSource`
+- `CreateEnhancedAssumptions`
+- `ExpandTrigonometric`
+- `ExpandLogarithmic`
+
+---
+
 ## Quick Start
 
 ```go

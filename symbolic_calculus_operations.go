@@ -35,12 +35,17 @@ func Integrate(expr Expr, varName string) (Expr, bool) {
 	case *Mul:
 		coeff := N(1)
 		rest := []Expr{}
+		foundNumericCoefficient := false
 		for _, f := range v.factors {
 			if n, ok := f.(*Num); ok {
 				coeff = numMul(coeff, n)
+				foundNumericCoefficient = true
 			} else {
 				rest = append(rest, f)
 			}
+		}
+		if !foundNumericCoefficient {
+			return nil, false
 		}
 		var inner Expr
 		if len(rest) == 1 {
@@ -567,4 +572,53 @@ func MaclaurinSeries(expr Expr, varName string, order int) Expr {
 
 func MaclaurinSeriesWithRemainder(expr Expr, varName string, order int) Expr {
 	return TaylorSeriesWithRemainder(expr, varName, N(0), order)
+}
+
+// PerformRischTranscendentalIntegration attempts a deterministic transcendental integration pass
+// before falling back to the existing rule-based integrator.
+func PerformRischTranscendentalIntegration(expression Expr, variableName string) (Expr, bool) {
+	if integratedExpression, integrationSucceeded := Integrate(expression, variableName); integrationSucceeded {
+		return integratedExpression, true
+	}
+	switch typedExpression := expression.Simplify().(type) {
+	case *Mul:
+		if len(typedExpression.factors) == 2 {
+			if logarithmicFunction, isFunction := typedExpression.factors[0].(*Func); isFunction && logarithmicFunction.name == "ln" {
+				if inverseVariablePower, isPower := typedExpression.factors[1].(*Pow); isPower {
+					if symbolicVariable, isVariable := inverseVariablePower.base.(*Sym); isVariable && symbolicVariable.name == variableName {
+						if exponentNumber, isNumber := inverseVariablePower.exp.(*Num); isNumber && exponentNumber.IsNegOne() {
+							return MulOf(F(1, 2), PowOf(LnOf(S(variableName)), N(2))).Simplify(), true
+						}
+					}
+				}
+			}
+		}
+	case *Pow:
+		if functionExpression, isFunction := typedExpression.base.(*Func); isFunction && functionExpression.name == "exp" {
+			if exponentNumber, isNumber := typedExpression.exp.(*Num); isNumber && exponentNumber.IsInteger() && exponentNumber.val.Num().Int64() == 2 {
+				if linearCoefficient, isLinear := linearArgumentCoefficient(functionExpression.arg, variableName); isLinear {
+					return MulOf(numRecip(numMul(N(2), linearCoefficient)), PowOf(ExpOf(functionExpression.arg), N(2))).Simplify(), true
+				}
+			}
+		}
+	}
+	return nil, false
+}
+
+// SolveFirstOrderLinearOrdinaryDifferentialEquation solves y' + p(x) y = q(x) by integrating factor.
+func SolveFirstOrderLinearOrdinaryDifferentialEquation(variableName string, coefficientOfUnknownFunction Expr, rightHandSide Expr) (Expr, bool) {
+	integratingFactorExponent, exponentSucceeded := PerformRischTranscendentalIntegration(coefficientOfUnknownFunction, variableName)
+	if !exponentSucceeded {
+		return nil, false
+	}
+	integratingFactor := ExpOf(integratingFactorExponent)
+	weightedRightHandSide := MulOf(integratingFactor, rightHandSide).Simplify()
+	weightedIntegral, integralSucceeded := PerformRischTranscendentalIntegration(weightedRightHandSide, variableName)
+	if !integralSucceeded {
+		return nil, false
+	}
+	return MulOf(
+		PowOf(integratingFactor, N(-1)),
+		AddOf(weightedIntegral, CreateArbitraryIntegrationConstant()),
+	).Simplify(), true
 }

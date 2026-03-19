@@ -1056,3 +1056,93 @@ func BenchmarkDifferentiateExpression(b *testing.B) {
 		_ = gosymbol.DifferentiateExpression(expr, "x")
 	}
 }
+
+func TestGenerateRunnableGoFunctionSource(t *testing.T) {
+	source, err := gosymbol.GenerateRunnableGoFunctionSource(gosymbol.Parse("x^2 + 1"), "EvaluateSquarePlusOne")
+	if err != nil {
+		t.Fatalf("unexpected source generation error: %v", err)
+	}
+	if !strings.Contains(source, "func EvaluateSquarePlusOne") || !strings.Contains(source, "math.Pow") {
+		t.Fatalf("unexpected generated source: %s", source)
+	}
+}
+
+func TestCreateBoxedAsciiPrettyPrint(t *testing.T) {
+	boxed := gosymbol.CreateBoxedAsciiPrettyPrint(gosymbol.Parse("x + 1"))
+	if !strings.Contains(boxed, "+") || !strings.Contains(boxed, "add") {
+		t.Fatalf("expected boxed pretty print output, got %s", boxed)
+	}
+}
+
+func TestEnhancedAssumptionsHelpers(t *testing.T) {
+	symbolicVariable := gosymbol.ApplyAssumptionsToSymbolicVariable(
+		gosymbol.S("x"),
+		gosymbol.CreateEnhancedAssumptions(true, false, false, true, true),
+	)
+	if !gosymbol.SymbolicVariableIsKnownReal(symbolicVariable) || !gosymbol.SymbolicVariableIsKnownInteger(symbolicVariable) || !gosymbol.SymbolicVariableIsKnownNonZero(symbolicVariable) {
+		t.Fatalf("expected enhanced assumptions helpers to report true")
+	}
+}
+
+func TestPerformRischTranscendentalIntegration(t *testing.T) {
+	result, ok := gosymbol.PerformRischTranscendentalIntegration(
+		gosymbol.MulOf(gosymbol.LnOf(gosymbol.S("x")), gosymbol.PowOf(gosymbol.S("x"), gosymbol.N(-1))),
+		"x",
+	)
+	if !ok {
+		t.Fatal("expected transcendental integration to succeed")
+	}
+	if got := gosymbol.String(result); !strings.Contains(got, "ln(x)^2") {
+		t.Fatalf("unexpected transcendental integral result: %s", got)
+	}
+}
+
+func TestSolveFirstOrderLinearOrdinaryDifferentialEquation(t *testing.T) {
+	result, ok := gosymbol.SolveFirstOrderLinearOrdinaryDifferentialEquation("x", gosymbol.N(1), gosymbol.N(0))
+	if !ok {
+		t.Fatal("expected ordinary differential equation solver to succeed")
+	}
+	if got := gosymbol.String(result); !strings.Contains(got, "exp(x)^-1") && !strings.Contains(got, "exp(x)") {
+		t.Fatalf("unexpected ordinary differential equation solution: %s", got)
+	}
+}
+
+func TestPatternRewriteAndExpansions(t *testing.T) {
+	rules := []gosymbol.PatternRewriteRule{{
+		Pattern:     gosymbol.AddOf(gosymbol.S("_value"), gosymbol.N(0)),
+		Replacement: gosymbol.S("_value"),
+	}}
+	rewritten := gosymbol.RewriteExpressionByPatternRules(gosymbol.Parse("x + 0"), rules)
+	if got := gosymbol.String(rewritten); got != "x" {
+		t.Fatalf("expected rewrite result x, got %s", got)
+	}
+
+	expandedTrigonometric := gosymbol.ExpandTrigonometric(gosymbol.SinOf(gosymbol.AddOf(gosymbol.S("x"), gosymbol.S("y"))))
+	if got := gosymbol.String(expandedTrigonometric); !strings.Contains(got, "sin(x)") || !strings.Contains(got, "cos(y)") {
+		t.Fatalf("unexpected trigonometric expansion: %s", got)
+	}
+
+	expandedLogarithmic := gosymbol.ExpandLogarithmic(gosymbol.LnOf(gosymbol.MulOf(gosymbol.S("x"), gosymbol.S("y"))))
+	if got := gosymbol.String(expandedLogarithmic); !strings.Contains(got, "ln(x)") || !strings.Contains(got, "ln(y)") {
+		t.Fatalf("unexpected logarithmic expansion: %s", got)
+	}
+}
+
+func TestComputeGroebnerBasisAndComplexNumbers(t *testing.T) {
+	basis := gosymbol.ComputeGroebnerBasis(
+		[]gosymbol.Expr{
+			gosymbol.AddOf(gosymbol.MulOf(gosymbol.S("x"), gosymbol.S("y")), gosymbol.N(-1)),
+			gosymbol.AddOf(gosymbol.S("y"), gosymbol.N(-1)),
+		},
+		[]string{"x", "y"},
+	)
+	if len(basis) == 0 {
+		t.Fatal("expected non-empty Groebner basis")
+	}
+
+	imaginaryUnit := gosymbol.CreateImaginaryUnit()
+	product := gosymbol.MultiplyComplexNumbers(imaginaryUnit, imaginaryUnit)
+	if got := gosymbol.String(product); !strings.Contains(got, "-1") {
+		t.Fatalf("unexpected complex multiplication result: %s", got)
+	}
+}

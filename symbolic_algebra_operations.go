@@ -1,8 +1,10 @@
 package gosymbol
 
 import (
+	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 )
 
 // ============================================================
@@ -857,4 +859,496 @@ func Apart(num, denom Expr, varName string) ApartResult {
 		terms[i] = MulOf(residue, PowOf(linearFactors[i], N(-1))).Simplify()
 	}
 	return ApartResult{Terms: terms}
+}
+
+// PatternRewriteRule describes a deterministic rewrite rule.
+type PatternRewriteRule struct {
+	Pattern     Expr
+	Replacement Expr
+}
+
+// MatchExpressionPattern matches a pattern expression against a concrete expression.
+// Symbolic variables whose names start with an underscore are treated as placeholders.
+func MatchExpressionPattern(pattern Expr, expression Expr) (map[string]Expr, bool) {
+	bindings := map[string]Expr{}
+	if !matchExpressionPatternIntoBindings(pattern, expression, bindings) {
+		return nil, false
+	}
+	return bindings, true
+}
+
+func matchExpressionPatternIntoBindings(pattern Expr, expression Expr, bindings map[string]Expr) bool {
+	if patternSymbolicVariable, isVariable := pattern.(*Sym); isVariable && len(patternSymbolicVariable.name) > 0 && patternSymbolicVariable.name[0] == '_' {
+		if existingBinding, hasBinding := bindings[patternSymbolicVariable.name]; hasBinding {
+			return existingBinding.Equal(expression)
+		}
+		bindings[patternSymbolicVariable.name] = expression
+		return true
+	}
+	switch typedPattern := pattern.(type) {
+	case *Num, *ConstantNode, *Sym:
+		return pattern.Equal(expression)
+	case *Add:
+		typedExpression, isAddition := expression.(*Add)
+		if !isAddition || len(typedPattern.terms) != len(typedExpression.terms) {
+			return false
+		}
+		for termIndex := range typedPattern.terms {
+			if !matchExpressionPatternIntoBindings(typedPattern.terms[termIndex], typedExpression.terms[termIndex], bindings) {
+				return false
+			}
+		}
+		return true
+	case *Mul:
+		typedExpression, isMultiplication := expression.(*Mul)
+		if !isMultiplication || len(typedPattern.factors) != len(typedExpression.factors) {
+			return false
+		}
+		for factorIndex := range typedPattern.factors {
+			if !matchExpressionPatternIntoBindings(typedPattern.factors[factorIndex], typedExpression.factors[factorIndex], bindings) {
+				return false
+			}
+		}
+		return true
+	case *Pow:
+		typedExpression, isPower := expression.(*Pow)
+		return isPower &&
+			matchExpressionPatternIntoBindings(typedPattern.base, typedExpression.base, bindings) &&
+			matchExpressionPatternIntoBindings(typedPattern.exp, typedExpression.exp, bindings)
+	case *Func:
+		typedExpression, isFunction := expression.(*Func)
+		return isFunction && typedPattern.name == typedExpression.name && matchExpressionPatternIntoBindings(typedPattern.arg, typedExpression.arg, bindings)
+	default:
+		return pattern.Equal(expression)
+	}
+}
+
+// RewriteExpressionByPatternRules applies rewrite rules repeatedly until stable.
+func RewriteExpressionByPatternRules(expression Expr, rules []PatternRewriteRule) Expr {
+	currentExpression := expression
+	for iterationIndex := 0; iterationIndex < 10; iterationIndex++ {
+		replacedExpression, changed := rewriteExpressionByPatternRulesOnce(currentExpression, rules)
+		if !changed {
+			return currentExpression.Simplify()
+		}
+		currentExpression = replacedExpression.Simplify()
+	}
+	return currentExpression.Simplify()
+}
+
+func rewriteExpressionByPatternRulesOnce(expression Expr, rules []PatternRewriteRule) (Expr, bool) {
+	for _, rule := range rules {
+		if bindings, matched := MatchExpressionPattern(rule.Pattern, expression); matched {
+			return substitutePatternBindings(rule.Replacement, bindings).Simplify(), true
+		}
+	}
+	switch typedExpression := expression.(type) {
+	case *Add:
+		rewrittenTerms := make([]Expr, len(typedExpression.terms))
+		changed := false
+		for termIndex, term := range typedExpression.terms {
+			rewrittenTerm, termChanged := rewriteExpressionByPatternRulesOnce(term, rules)
+			rewrittenTerms[termIndex] = rewrittenTerm
+			changed = changed || termChanged
+		}
+		if changed {
+			return AddOf(rewrittenTerms...), true
+		}
+	case *Mul:
+		rewrittenFactors := make([]Expr, len(typedExpression.factors))
+		changed := false
+		for factorIndex, factor := range typedExpression.factors {
+			rewrittenFactor, factorChanged := rewriteExpressionByPatternRulesOnce(factor, rules)
+			rewrittenFactors[factorIndex] = rewrittenFactor
+			changed = changed || factorChanged
+		}
+		if changed {
+			return MulOf(rewrittenFactors...), true
+		}
+	case *Pow:
+		rewrittenBase, baseChanged := rewriteExpressionByPatternRulesOnce(typedExpression.base, rules)
+		rewrittenExponent, exponentChanged := rewriteExpressionByPatternRulesOnce(typedExpression.exp, rules)
+		if baseChanged || exponentChanged {
+			return PowOf(rewrittenBase, rewrittenExponent), true
+		}
+	case *Func:
+		rewrittenArgument, argumentChanged := rewriteExpressionByPatternRulesOnce(typedExpression.arg, rules)
+		if argumentChanged {
+			return funcOf(typedExpression.name, rewrittenArgument).Simplify(), true
+		}
+	}
+	return expression, false
+}
+
+func substitutePatternBindings(expression Expr, bindings map[string]Expr) Expr {
+	if symbolicVariable, isVariable := expression.(*Sym); isVariable {
+		if replacement, hasReplacement := bindings[symbolicVariable.name]; hasReplacement {
+			return replacement
+		}
+	}
+	switch typedExpression := expression.(type) {
+	case *Add:
+		replacedTerms := make([]Expr, len(typedExpression.terms))
+		for termIndex, term := range typedExpression.terms {
+			replacedTerms[termIndex] = substitutePatternBindings(term, bindings)
+		}
+		return AddOf(replacedTerms...)
+	case *Mul:
+		replacedFactors := make([]Expr, len(typedExpression.factors))
+		for factorIndex, factor := range typedExpression.factors {
+			replacedFactors[factorIndex] = substitutePatternBindings(factor, bindings)
+		}
+		return MulOf(replacedFactors...)
+	case *Pow:
+		return PowOf(substitutePatternBindings(typedExpression.base, bindings), substitutePatternBindings(typedExpression.exp, bindings))
+	case *Func:
+		return funcOf(typedExpression.name, substitutePatternBindings(typedExpression.arg, bindings)).Simplify()
+	default:
+		return expression
+	}
+}
+
+// ExpandTrigonometric applies common sum-angle and multiple-angle expansions.
+func ExpandTrigonometric(expression Expr) Expr {
+	switch typedExpression := expression.(type) {
+	case *Func:
+		expandedArgument := ExpandTrigonometric(typedExpression.arg)
+		if additionArgument, isAddition := expandedArgument.(*Add); isAddition && len(additionArgument.terms) == 2 {
+			leftTerm := additionArgument.terms[0]
+			rightTerm := additionArgument.terms[1]
+			switch typedExpression.name {
+			case "sin":
+				return AddOf(MulOf(SinOf(leftTerm), CosOf(rightTerm)), MulOf(CosOf(leftTerm), SinOf(rightTerm))).Simplify()
+			case "cos":
+				return AddOf(MulOf(CosOf(leftTerm), CosOf(rightTerm)), MulOf(N(-1), SinOf(leftTerm), SinOf(rightTerm))).Simplify()
+			}
+		}
+		return funcOf(typedExpression.name, expandedArgument).Simplify()
+	case *Pow:
+		return PowOf(ExpandTrigonometric(typedExpression.base), ExpandTrigonometric(typedExpression.exp)).Simplify()
+	case *Add:
+		expandedTerms := make([]Expr, len(typedExpression.terms))
+		for termIndex, term := range typedExpression.terms {
+			expandedTerms[termIndex] = ExpandTrigonometric(term)
+		}
+		return AddOf(expandedTerms...).Simplify()
+	case *Mul:
+		expandedFactors := make([]Expr, len(typedExpression.factors))
+		for factorIndex, factor := range typedExpression.factors {
+			expandedFactors[factorIndex] = ExpandTrigonometric(factor)
+		}
+		return MulOf(expandedFactors...).Simplify()
+	default:
+		return expression
+	}
+}
+
+// ExpandLogarithmic applies common logarithmic product and power expansions.
+func ExpandLogarithmic(expression Expr) Expr {
+	switch typedExpression := expression.(type) {
+	case *Func:
+		if typedExpression.name == "ln" {
+			switch logarithmicArgument := typedExpression.arg.(type) {
+			case *Mul:
+				expandedTerms := make([]Expr, len(logarithmicArgument.factors))
+				for factorIndex, factor := range logarithmicArgument.factors {
+					expandedTerms[factorIndex] = LnOf(ExpandLogarithmic(factor))
+				}
+				return AddOf(expandedTerms...).Simplify()
+			case *Pow:
+				return MulOf(logarithmicArgument.exp, LnOf(ExpandLogarithmic(logarithmicArgument.base))).Simplify()
+			}
+		}
+		return funcOf(typedExpression.name, ExpandLogarithmic(typedExpression.arg)).Simplify()
+	case *Add:
+		expandedTerms := make([]Expr, len(typedExpression.terms))
+		for termIndex, term := range typedExpression.terms {
+			expandedTerms[termIndex] = ExpandLogarithmic(term)
+		}
+		return AddOf(expandedTerms...).Simplify()
+	case *Mul:
+		expandedFactors := make([]Expr, len(typedExpression.factors))
+		for factorIndex, factor := range typedExpression.factors {
+			expandedFactors[factorIndex] = ExpandLogarithmic(factor)
+		}
+		return MulOf(expandedFactors...).Simplify()
+	case *Pow:
+		return PowOf(ExpandLogarithmic(typedExpression.base), ExpandLogarithmic(typedExpression.exp)).Simplify()
+	default:
+		return expression
+	}
+}
+
+// ComputeGroebnerBasis computes a small Buchberger basis for exact multivariate polynomials.
+func ComputeGroebnerBasis(polynomials []Expr, variableNames []string) []Expr {
+	if len(polynomials) == 0 || len(variableNames) == 0 {
+		return nil
+	}
+	basis := make([]map[string]*Num, 0, len(polynomials))
+	for _, polynomial := range polynomials {
+		polynomialTerms, converted := convertExpressionToMultivariatePolynomial(polynomial, variableNames)
+		if !converted {
+			continue
+		}
+		basis = append(basis, polynomialTerms)
+	}
+	changed := true
+	for changed {
+		changed = false
+		for leftIndex := 0; leftIndex < len(basis); leftIndex++ {
+			for rightIndex := leftIndex + 1; rightIndex < len(basis); rightIndex++ {
+				sPolynomial := computeSPolynomial(basis[leftIndex], basis[rightIndex], variableNames)
+				reducedPolynomial := reduceMultivariatePolynomial(sPolynomial, basis, variableNames)
+				if len(reducedPolynomial) == 0 {
+					continue
+				}
+				basis = append(basis, reducedPolynomial)
+				changed = true
+			}
+		}
+	}
+	result := make([]Expr, len(basis))
+	for basisIndex, polynomialTerms := range basis {
+		result[basisIndex] = convertMultivariatePolynomialToExpression(polynomialTerms, variableNames)
+	}
+	return result
+}
+
+func convertExpressionToMultivariatePolynomial(expression Expr, variableNames []string) (map[string]*Num, bool) {
+	terms := map[string]*Num{}
+	switch typedExpression := Expand(expression).Simplify().(type) {
+	case *Add:
+		for _, term := range typedExpression.terms {
+			exponents, coefficient, converted := convertExpressionTermToMonomial(term, variableNames)
+			if !converted {
+				return nil, false
+			}
+			terms[stringifyExponentVector(exponents)] = addMultivariateCoefficient(terms[stringifyExponentVector(exponents)], coefficient)
+		}
+	default:
+		exponents, coefficient, converted := convertExpressionTermToMonomial(typedExpression, variableNames)
+		if !converted {
+			return nil, false
+		}
+		terms[stringifyExponentVector(exponents)] = coefficient
+	}
+	for exponentKey, coefficient := range terms {
+		if coefficient.IsZero() {
+			delete(terms, exponentKey)
+		}
+	}
+	return terms, true
+}
+
+func convertExpressionTermToMonomial(expression Expr, variableNames []string) ([]int, *Num, bool) {
+	exponents := make([]int, len(variableNames))
+	coefficient := N(1)
+	var collectFactor func(Expr) bool
+	collectFactor = func(factor Expr) bool {
+		switch typedFactor := factor.(type) {
+		case *Num:
+			coefficient = numMul(coefficient, typedFactor)
+			return true
+		case *Sym:
+			for variableIndex, variableName := range variableNames {
+				if typedFactor.name == variableName {
+					exponents[variableIndex]++
+					return true
+				}
+			}
+			return false
+		case *Pow:
+			symbolicVariable, isVariable := typedFactor.base.(*Sym)
+			exponentNumber, isNumber := typedFactor.exp.(*Num)
+			if !isVariable || !isNumber || !exponentNumber.IsInteger() {
+				return false
+			}
+			for variableIndex, variableName := range variableNames {
+				if symbolicVariable.name == variableName {
+					exponents[variableIndex] += int(exponentNumber.val.Num().Int64())
+					return true
+				}
+			}
+			return false
+		case *Mul:
+			for _, innerFactor := range typedFactor.factors {
+				if !collectFactor(innerFactor) {
+					return false
+				}
+			}
+			return true
+		default:
+			return false
+		}
+	}
+	if !collectFactor(expression) {
+		return nil, nil, false
+	}
+	return exponents, coefficient, true
+}
+
+func stringifyExponentVector(exponents []int) string {
+	parts := make([]string, len(exponents))
+	for exponentIndex, exponent := range exponents {
+		parts[exponentIndex] = fmt.Sprintf("%d", exponent)
+	}
+	return strings.Join(parts, ",")
+}
+
+func parseExponentVector(serializedExponents string) []int {
+	if serializedExponents == "" {
+		return nil
+	}
+	parts := strings.Split(serializedExponents, ",")
+	exponents := make([]int, len(parts))
+	for exponentIndex, part := range parts {
+		fmt.Sscanf(part, "%d", &exponents[exponentIndex])
+	}
+	return exponents
+}
+
+func addMultivariateCoefficient(left, right *Num) *Num {
+	if left == nil {
+		return right
+	}
+	return numAdd(left, right)
+}
+
+func leadingMultivariateTerm(polynomial map[string]*Num) ([]int, *Num, string) {
+	var leadingKey string
+	var leadingExponents []int
+	for exponentKey := range polynomial {
+		exponents := parseExponentVector(exponentKey)
+		if leadingExponents == nil || compareExponentVectors(exponents, leadingExponents) > 0 {
+			leadingExponents = exponents
+			leadingKey = exponentKey
+		}
+	}
+	return leadingExponents, polynomial[leadingKey], leadingKey
+}
+
+func compareExponentVectors(left, right []int) int {
+	for exponentIndex := range left {
+		if left[exponentIndex] != right[exponentIndex] {
+			if left[exponentIndex] > right[exponentIndex] {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
+}
+
+func computeSPolynomial(leftPolynomial, rightPolynomial map[string]*Num, variableNames []string) map[string]*Num {
+	leftLeadingExponents, leftLeadingCoefficient, _ := leadingMultivariateTerm(leftPolynomial)
+	rightLeadingExponents, rightLeadingCoefficient, _ := leadingMultivariateTerm(rightPolynomial)
+	leastCommonMultipleExponents := make([]int, len(leftLeadingExponents))
+	for exponentIndex := range leastCommonMultipleExponents {
+		leastCommonMultipleExponents[exponentIndex] = leftLeadingExponents[exponentIndex]
+		if rightLeadingExponents[exponentIndex] > leastCommonMultipleExponents[exponentIndex] {
+			leastCommonMultipleExponents[exponentIndex] = rightLeadingExponents[exponentIndex]
+		}
+	}
+	leftMultiplier := subtractExponentVectors(leastCommonMultipleExponents, leftLeadingExponents)
+	rightMultiplier := subtractExponentVectors(leastCommonMultipleExponents, rightLeadingExponents)
+	leftScaledPolynomial := scaleMultivariatePolynomial(leftPolynomial, leftMultiplier, numRecip(leftLeadingCoefficient))
+	rightScaledPolynomial := scaleMultivariatePolynomial(rightPolynomial, rightMultiplier, numRecip(rightLeadingCoefficient))
+	return subtractMultivariatePolynomials(leftScaledPolynomial, rightScaledPolynomial)
+}
+
+func subtractExponentVectors(left, right []int) []int {
+	result := make([]int, len(left))
+	for exponentIndex := range left {
+		result[exponentIndex] = left[exponentIndex] - right[exponentIndex]
+	}
+	return result
+}
+
+func scaleMultivariatePolynomial(polynomial map[string]*Num, exponentOffset []int, coefficientScale *Num) map[string]*Num {
+	result := map[string]*Num{}
+	for exponentKey, coefficient := range polynomial {
+		exponents := parseExponentVector(exponentKey)
+		for exponentIndex := range exponents {
+			exponents[exponentIndex] += exponentOffset[exponentIndex]
+		}
+		result[stringifyExponentVector(exponents)] = numMul(coefficient, coefficientScale)
+	}
+	return result
+}
+
+func subtractMultivariatePolynomials(leftPolynomial, rightPolynomial map[string]*Num) map[string]*Num {
+	result := map[string]*Num{}
+	for exponentKey, coefficient := range leftPolynomial {
+		result[exponentKey] = coefficient
+	}
+	for exponentKey, coefficient := range rightPolynomial {
+		if existingCoefficient, hasExistingCoefficient := result[exponentKey]; hasExistingCoefficient {
+			result[exponentKey] = numSub(existingCoefficient, coefficient)
+		} else {
+			result[exponentKey] = numNeg(coefficient)
+		}
+	}
+	for exponentKey, coefficient := range result {
+		if coefficient.IsZero() {
+			delete(result, exponentKey)
+		}
+	}
+	return result
+}
+
+func reduceMultivariatePolynomial(polynomial map[string]*Num, basis []map[string]*Num, variableNames []string) map[string]*Num {
+	remainder := map[string]*Num{}
+	workingPolynomial := polynomial
+	for len(workingPolynomial) > 0 {
+		reduced := false
+		workingLeadingExponents, workingLeadingCoefficient, workingLeadingKey := leadingMultivariateTerm(workingPolynomial)
+		for _, basisPolynomial := range basis {
+			basisLeadingExponents, basisLeadingCoefficient, _ := leadingMultivariateTerm(basisPolynomial)
+			if exponentVectorDivides(basisLeadingExponents, workingLeadingExponents) {
+				exponentDifference := subtractExponentVectors(workingLeadingExponents, basisLeadingExponents)
+				scale := numDiv(workingLeadingCoefficient, basisLeadingCoefficient)
+				workingPolynomial = subtractMultivariatePolynomials(workingPolynomial, scaleMultivariatePolynomial(basisPolynomial, exponentDifference, scale))
+				reduced = true
+				break
+			}
+		}
+		if reduced {
+			continue
+		}
+		remainder[workingLeadingKey] = workingLeadingCoefficient
+		delete(workingPolynomial, workingLeadingKey)
+	}
+	return remainder
+}
+
+func exponentVectorDivides(divisor, dividend []int) bool {
+	for exponentIndex := range divisor {
+		if divisor[exponentIndex] > dividend[exponentIndex] {
+			return false
+		}
+	}
+	return true
+}
+
+func convertMultivariatePolynomialToExpression(polynomial map[string]*Num, variableNames []string) Expr {
+	if len(polynomial) == 0 {
+		return N(0)
+	}
+	terms := make([]Expr, 0, len(polynomial))
+	for exponentKey, coefficient := range polynomial {
+		exponents := parseExponentVector(exponentKey)
+		factors := []Expr{coefficient}
+		for exponentIndex, exponent := range exponents {
+			if exponent == 0 {
+				continue
+			}
+			if exponent == 1 {
+				factors = append(factors, S(variableNames[exponentIndex]))
+			} else {
+				factors = append(factors, PowOf(S(variableNames[exponentIndex]), N(int64(exponent))))
+			}
+		}
+		terms = append(terms, MulOf(factors...).Simplify())
+	}
+	return AddOf(terms...).Simplify()
 }
